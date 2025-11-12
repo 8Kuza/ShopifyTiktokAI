@@ -300,8 +300,8 @@ def parse_args():
     parser.add_argument(
         '--interval',
         type=int,
-        default=None,
-        help='Sync interval in seconds (for continuous mode). If not set, runs once.'
+        default=300,  # Default to 5 minutes for Render deployment
+        help='Sync interval in seconds (for continuous mode). Default: 300 (5 minutes).'
     )
     
     parser.add_argument(
@@ -374,27 +374,46 @@ def main():
     
     # Run sync based on mode
     try:
-        if args.interval:
-            # Continuous mode with scheduler and Flask
-            bot.start_scheduler(interval=args.interval)
-            logger.info(f"Bot running in continuous mode (interval: {args.interval}s). Flask health endpoint available at /health")
-            logger.info("Press Ctrl+C to stop.")
-            
-            # Run Flask in a separate thread for health endpoint
-            import threading
-            flask_thread = threading.Thread(
-                target=lambda: app.run(host='0.0.0.0', port=5000, debug=False, use_reloader=False),
-                daemon=True
-            )
-            flask_thread.start()
-            
-            try:
-                while True:
-                    time.sleep(1)
-            except KeyboardInterrupt:
-                logger.info("Stopping bot...")
-                bot.stop_scheduler()
-        else:
+        # Always run in continuous mode for Render deployment (default behavior)
+        # This ensures the app stays alive and doesn't exit early
+        logger.info(f"Starting continuous mode with {args.interval}s interval")
+        bot.start_scheduler(interval=args.interval)
+        logger.info(f"Bot running in continuous mode (interval: {args.interval}s). Flask health endpoint available at /health")
+        
+        # Run Flask in a separate thread for health endpoint
+        import threading
+        flask_thread = threading.Thread(
+            target=lambda: app.run(host='0.0.0.0', port=5000, debug=False, use_reloader=False),
+            daemon=True
+        )
+        flask_thread.start()
+        logger.info("Flask health endpoint started on port 5000")
+        
+        # Run initial sync immediately (don't wait for first scheduled run)
+        if args.mode == 'full' or args.mode is None:
+            logger.info("Running initial full sync...")
+            bot.run_full_sync()
+        elif args.mode == 'inventory':
+            logger.info("Running initial inventory sync...")
+            results = bot.sync_inventory()
+            logger.info(f"Inventory sync results: {results}")
+        elif args.mode == 'products':
+            logger.info("Running initial product sync...")
+            results = bot.sync_products(limit=args.limit)
+            logger.info(f"Product sync results: {results}")
+        
+        # Keep the main thread alive - CRITICAL for Render deployment
+        logger.info("Application is running. Waiting for scheduled syncs...")
+        try:
+            while True:
+                time.sleep(1)
+        except KeyboardInterrupt:
+            logger.info("Stopping bot...")
+            bot.stop_scheduler()
+            sys.exit(0)
+        
+        # This code should never be reached, but kept for backwards compatibility
+        if False:  # Disabled - always use continuous mode
             # Single run mode
             if args.mode == 'full':
                 bot.run_full_sync()
