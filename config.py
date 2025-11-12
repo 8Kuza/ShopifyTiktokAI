@@ -47,8 +47,19 @@ class Config:
     SLACK_WEBHOOK = os.getenv('SLACK_WEBHOOK', '')
     
     @classmethod
-    def validate(cls):
-        """Validate that all required configuration is present."""
+    def validate(cls, strict: bool = True):
+        """
+        Validate that all required configuration is present.
+        
+        Args:
+            strict: If True, raise ValueError on missing vars. If False, log warning.
+            
+        Returns:
+            True if validation passes
+            
+        Raises:
+            ValueError: If required variables are missing and strict=True
+        """
         required = [
             ('SHOPIFY_STORE', cls.SHOPIFY_STORE),
             ('SHOPIFY_TOKEN', cls.SHOPIFY_TOKEN),
@@ -57,11 +68,17 @@ class Config:
         
         missing = [name for name, value in required if not value]
         if missing:
-            raise ValueError(f"Missing required environment variables: {', '.join(missing)}")
+            error_msg = f"Missing required environment variables: {', '.join(missing)}"
+            if strict:
+                raise ValueError(error_msg)
+            else:
+                logger.warning(error_msg)
+                return False
         
         if cls.MOCK_MODE:
             logger.info("TikTok API keys not provided - running in MOCK MODE")
         
+        logger.info("Configuration validation passed")
         return True
 
 
@@ -112,54 +129,76 @@ def init_shopify_client():
     return True
 
 
-def init_openai_client():
+def init_openai_client(max_retries: int = 3):
     """
-    Initialize OpenAI API client.
+    Initialize OpenAI API client with retry logic.
     Compatible with OpenAI library 1.51.0.
+    Explicitly disables proxies to prevent initialization errors.
     
+    Args:
+        max_retries: Maximum number of initialization attempts
+        
     Returns:
         OpenAI client instance
+        
+    Raises:
+        ValueError: If initialization fails after all retries
     """
     if not Config.OPENAI_API_KEY:
         raise ValueError("OpenAI API key required")
     
-    # Initialize OpenAI client with explicit api_key parameter only
-    # This avoids any issues with proxy settings or environment variables
+    import os
+    
+    # Save proxy environment variables
+    proxy_vars = ['HTTP_PROXY', 'HTTPS_PROXY', 'http_proxy', 'https_proxy', 
+                 'ALL_PROXY', 'all_proxy', 'NO_PROXY', 'no_proxy']
+    saved_env = {}
+    for var in proxy_vars:
+        if var in os.environ:
+            saved_env[var] = os.environ[var]
+            # Temporarily remove to prevent OpenAI from using them
+            del os.environ[var]
+    
     try:
-        client = OpenAI(api_key=Config.OPENAI_API_KEY)
-        return client
-    except (TypeError, ValueError) as e:
-        error_msg = str(e).lower()
-        # Handle proxy-related errors
-        if 'proxies' in error_msg or 'unexpected keyword' in error_msg:
-            logger.warning("OpenAI client initialization issue detected, trying alternative method")
-            # Try alternative initialization without any extra parameters
-            import os
-            # Save and temporarily clear proxy environment variables
-            proxy_vars = ['HTTP_PROXY', 'HTTPS_PROXY', 'http_proxy', 'https_proxy', 
-                         'ALL_PROXY', 'all_proxy', 'NO_PROXY', 'no_proxy']
-            saved_env = {}
-            for var in proxy_vars:
-                if var in os.environ:
-                    saved_env[var] = os.environ[var]
-                    del os.environ[var]
-            
+        # Initialize OpenAI client with explicit proxies=None to prevent auto-detection
+        # OpenAI 1.51.0 doesn't support proxies parameter, so we clear env vars instead
+        for attempt in range(max_retries):
             try:
-                # Try initialization again without proxy env vars
+                # Try initialization - OpenAI 1.51.0 should work without proxies
                 client = OpenAI(api_key=Config.OPENAI_API_KEY)
-                # Restore environment variables
-                for var, value in saved_env.items():
-                    os.environ[var] = value
-                return client
-            except Exception as e2:
-                # Restore environment variables even if it fails
-                for var, value in saved_env.items():
-                    os.environ[var] = value
-                logger.error(f"Failed to initialize OpenAI client even after clearing proxy vars: {e2}")
-                raise ValueError(f"OpenAI client initialization failed: {e2}") from e2
-        else:
-            # Re-raise if it's a different error
-            raise
+                # Test the client works by checking it has the expected attribute
+                if hasattr(client, 'chat'):
+                    logger.info("OpenAI client initialized successfully")
+                    # Restore environment variables
+                    for var, value in saved_env.items():
+                        os.environ[var] = value
+                    return client
+                else:
+                    raise ValueError("OpenAI client missing expected 'chat' attribute")
+            except TypeError as e:
+                error_msg = str(e).lower()
+                if 'proxies' in error_msg or 'unexpected keyword' in error_msg:
+                    if attempt < max_retries - 1:
+                        logger.warning(f"OpenAI init attempt {attempt + 1}/{max_retries} failed, retrying...")
+                        continue
+                    else:
+                        # Last attempt - try with explicit None for any proxy-related params
+                        # Some versions might auto-detect, so we ensure env is clean
+                        logger.error("OpenAI client initialization failed after all retries")
+                        raise ValueError(f"OpenAI client initialization failed: {e}. "
+                                       f"Please check OpenAI library version compatibility.") from e
+                else:
+                    raise
+            except Exception as e:
+                if attempt < max_retries - 1:
+                    logger.warning(f"OpenAI init attempt {attempt + 1}/{max_retries} failed: {e}, retrying...")
+                    continue
+                else:
+                    raise ValueError(f"OpenAI client initialization failed: {e}") from e
+    finally:
+        # Always restore environment variables
+        for var, value in saved_env.items():
+            os.environ[var] = value
 
 
 # Initialize logger

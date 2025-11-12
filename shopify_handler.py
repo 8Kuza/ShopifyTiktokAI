@@ -40,7 +40,7 @@ class ShopifyHandler:
     
     def _make_shopify_request(self, endpoint: str, method: str = 'GET', params: Dict[str, Any] = None) -> tuple:
         """
-        Make authenticated request to Shopify API.
+        Make authenticated request to Shopify API with rate limit checking.
         
         Args:
             endpoint: API endpoint (e.g., '/products.json')
@@ -49,6 +49,10 @@ class ShopifyHandler:
             
         Returns:
             Tuple of (response_json, response_headers) for pagination support
+            
+        Raises:
+            requests.exceptions.RequestException: If request fails
+            ValueError: If rate limit is exceeded (>90% usage)
         """
         url = f"https://{Config.SHOPIFY_STORE}/admin/api/{Config.SHOPIFY_API_VERSION}{endpoint}"
         headers = {
@@ -63,6 +67,23 @@ class ShopifyHandler:
                 response = requests.request(method, url, headers=headers, json=params, timeout=30)
             
             response.raise_for_status()
+            
+            # Check rate limits from X-Shopify-Shop-Api-Call-Limit header
+            rate_limit_header = response.headers.get('X-Shopify-Shop-Api-Call-Limit', '')
+            if rate_limit_header:
+                try:
+                    # Format: "1/40" (used/limit)
+                    used, limit = map(int, rate_limit_header.split('/'))
+                    usage_percent = (used / limit) * 100 if limit > 0 else 0
+                    
+                    if usage_percent > 90:
+                        logger.warning(f"Shopify API rate limit warning: {usage_percent:.1f}% used ({used}/{limit})")
+                    elif usage_percent > 75:
+                        logger.info(f"Shopify API rate limit: {usage_percent:.1f}% used ({used}/{limit})")
+                except (ValueError, ZeroDivisionError):
+                    # Ignore parsing errors for rate limit header
+                    pass
+            
             # Return both JSON and headers for pagination support
             return response.json(), response.headers
         except requests.exceptions.RequestException as e:

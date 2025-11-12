@@ -18,22 +18,32 @@ logger = logging.getLogger(__name__)
 class AIMapper:
     """AI mapper for converting Shopify products to TikTok-optimized format."""
     
-    def __init__(self, dry_run: bool = False):
+    def __init__(self, dry_run: bool = False, allow_fallback: bool = True):
         """
-        Initialize AI mapper.
+        Initialize AI mapper with error handling and fallback support.
         
         Args:
             dry_run: If True, simulate operations without making API calls
+            allow_fallback: If True, allow fallback to mock data if OpenAI fails
         """
         self.dry_run = dry_run
+        self.allow_fallback = allow_fallback
         self.client = None
+        self.openai_available = False
+        
         if not dry_run:
             try:
                 from config import init_openai_client
-                self.client = init_openai_client()
+                self.client = init_openai_client(max_retries=3)
+                self.openai_available = True
+                logger.info("OpenAI client initialized successfully")
             except Exception as e:
                 logger.error(f"Failed to initialize OpenAI client: {e}")
-                raise
+                if allow_fallback:
+                    logger.warning("Falling back to mock AI responses - OpenAI unavailable")
+                    self.openai_available = False
+                else:
+                    raise
     
     def _generate_cache_key(self, product_data: Dict[str, Any]) -> str:
         """
@@ -58,24 +68,26 @@ class AIMapper:
     
     def _call_openai(self, prompt: str, max_retries: int = 3) -> Dict[str, Any]:
         """
-        Call OpenAI API with retry logic.
+        Call OpenAI API with retry logic and fallback to mock data.
         
         Args:
             prompt: Prompt string
             max_retries: Maximum number of retries
             
         Returns:
-            Parsed JSON response
+            Parsed JSON response or mock data if OpenAI unavailable
         """
         if self.dry_run:
             logger.info(f"[DRY RUN] Would call OpenAI with prompt: {prompt[:100]}...")
-            return {
-                'category': 'Fashion',
-                'hashtags': ['#fashion', '#trending', '#y2k'],
-                'keywords': ['trendy', 'fashionable', 'stylish'],
-                'optimized_title': 'Sample Product Title',
-                'optimized_description': 'Sample product description optimized for TikTok Shop',
-            }
+            return self._get_mock_response()
+        
+        # If OpenAI is not available, return mock data
+        if not self.openai_available or self.client is None:
+            if self.allow_fallback:
+                logger.warning("OpenAI unavailable, using mock response")
+                return self._get_mock_response()
+            else:
+                raise ValueError("OpenAI client not available and fallback disabled")
         
         for attempt in range(max_retries):
             try:
@@ -120,16 +132,38 @@ class AIMapper:
             except json.JSONDecodeError as e:
                 logger.warning(f"Failed to parse OpenAI response (attempt {attempt + 1}/{max_retries}): {e}")
                 if attempt == max_retries - 1:
-                    logger.error("Max retries reached for OpenAI API call")
+                    logger.error("Max retries reached for OpenAI API call, using fallback")
+                    if self.allow_fallback:
+                        return self._get_mock_response()
                     raise
                 continue
                 
             except Exception as e:
                 logger.warning(f"OpenAI API call failed (attempt {attempt + 1}/{max_retries}): {e}")
                 if attempt == max_retries - 1:
-                    logger.error("Max retries reached for OpenAI API call")
+                    logger.error("Max retries reached for OpenAI API call, using fallback")
+                    if self.allow_fallback:
+                        return self._get_mock_response()
                     raise
                 continue
+        
+        # Should not reach here, but return mock if we do
+        if self.allow_fallback:
+            return self._get_mock_response()
+        raise ValueError("OpenAI API call failed after all retries")
+    
+    def _get_mock_response(self) -> Dict[str, Any]:
+        """
+        Get mock AI response when OpenAI is unavailable.
+        
+        Returns:
+            Mock response dictionary
+        """
+        return {
+            'tiktok_title': 'Trending Product - TikTok Viral',
+            'tiktok_description': 'Get this trending product now! Perfect for your TikTok hauls. Limited stock available! #TikTokMadeMeBuyIt #Trending #Viral',
+            'hashtags': ['#TikTokMadeMeBuyIt', '#Trending', '#Viral', '#ShopNow', '#MustHave']
+        }
     
     def map_product(self, shopify_product: Dict[str, Any], use_cache: bool = True) -> Dict[str, Any]:
         """

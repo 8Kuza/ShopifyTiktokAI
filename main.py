@@ -324,17 +324,26 @@ def main():
     
     # Validate configuration
     try:
-        Config.validate()
+        Config.validate(strict=True)
     except ValueError as e:
         logger.error(f"Configuration error: {e}")
-        logger.error("Please check your .env file and ensure all required variables are set")
+        logger.error("Please check your .env file and ensure all required variables are set:")
+        logger.error("  - SHOPIFY_STORE (e.g., your-store.myshopify.com)")
+        logger.error("  - SHOPIFY_TOKEN (Shopify Admin API access token)")
+        logger.error("  - OPENAI_API_KEY (OpenAI API key)")
         sys.exit(1)
     
-    # Initialize bot
+    # Initialize bot with error handling
     try:
         bot = SyncBot(dry_run=args.dry_run)
+        logger.info("Sync bot initialized successfully")
     except Exception as e:
         logger.error(f"Failed to initialize sync bot: {e}")
+        logger.error("This may be due to:")
+        logger.error("  1. Missing or invalid API keys")
+        logger.error("  2. Network connectivity issues")
+        logger.error("  3. API service unavailability")
+        logger.error("Try running with --dry-run to test configuration")
         sys.exit(1)
     
     # Run sync based on mode
