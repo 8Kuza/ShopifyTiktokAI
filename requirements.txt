@@ -5,8 +5,8 @@ python-dotenv==1.0.1
 requests==2.32.3
 openai==1.51.0
 
-# Shopify API
-shopify-python-api==1.0.1
+# Shopify API (using direct HTTP requests via requests library)
+# No additional Shopify library needed - using requests for reliability
 
 # Scheduling
 APScheduler==3.10.4

@@ -8,11 +8,6 @@ import logging
 from pathlib import Path
 from dotenv import load_dotenv
 from openai import OpenAI
-try:
-    import shopify
-except ImportError:
-    # Fallback if shopify-python-api is not installed
-    shopify = None
 
 # Load environment variables from .env file
 load_dotenv()
@@ -104,28 +99,17 @@ def setup_logging(log_level=logging.INFO, log_file='sync_bot.log'):
 
 def init_shopify_client():
     """
-    Initialize Shopify API client using shopify-python-api==1.0.1.
+    Initialize Shopify API client (using direct HTTP requests).
+    Validation only - actual requests are made in shopify_handler.
     
     Returns:
-        Configured Shopify session
+        True if configuration is valid
     """
-    if shopify is None:
-        raise ImportError("shopify-python-api library is not installed. Install it with: pip install shopify-python-api==1.0.1")
-    
     if not Config.SHOPIFY_STORE or not Config.SHOPIFY_TOKEN:
         raise ValueError("Shopify store and token required")
     
-    try:
-        # Set up Shopify API connection
-        shopify.ShopifyResource.set_site(
-            f"https://{Config.SHOPIFY_STORE}/admin/api/{Config.SHOPIFY_API_VERSION}"
-        )
-        shopify.ShopifyResource.set_access_token(Config.SHOPIFY_TOKEN)
-        
-        logger.info(f"Shopify client initialized for {Config.SHOPIFY_STORE}")
-        return True
-    except Exception as e:
-        raise ValueError(f"Failed to initialize Shopify client: {e}")
+    logger.info(f"Shopify client configuration validated for {Config.SHOPIFY_STORE}")
+    return True
 
 
 def init_openai_client():

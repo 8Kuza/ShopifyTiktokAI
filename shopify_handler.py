@@ -1,21 +1,13 @@
 """
 Shopify API handler for fetching products, inventory, and orders.
 Handles bulk operations and error retries.
+Uses direct HTTP requests for reliability.
 """
 
 import logging
 import time
+import requests
 from typing import List, Dict, Optional, Any
-try:
-    import shopify
-    from shopify import Product, Variant, InventoryItem, Order
-except ImportError:
-    # Fallback if shopify-python-api is not installed
-    shopify = None
-    Product = None
-    Variant = None
-    InventoryItem = None
-    Order = None
 from config import Config
 
 logger = logging.getLogger(__name__)
@@ -41,12 +33,42 @@ class ShopifyHandler:
                 raise
     
     def _init_session(self):
-        """Initialize Shopify session."""
-        if shopify is None:
-            raise ImportError("shopify-python-api library is not installed. Install it with: pip install shopify-python-api==1.0.1")
-        from config import init_shopify_client
-        init_shopify_client()
+        """Initialize Shopify session using direct HTTP requests."""
+        if not Config.SHOPIFY_STORE or not Config.SHOPIFY_TOKEN:
+            raise ValueError("Shopify store and token required")
         return True
+    
+    def _make_shopify_request(self, endpoint: str, method: str = 'GET', params: Dict[str, Any] = None) -> Dict[str, Any]:
+        """
+        Make authenticated request to Shopify API.
+        
+        Args:
+            endpoint: API endpoint (e.g., '/products.json')
+            method: HTTP method (GET, POST, etc.)
+            params: Query parameters
+            
+        Returns:
+            API response as dictionary
+        """
+        url = f"https://{Config.SHOPIFY_STORE}/admin/api/{Config.SHOPIFY_API_VERSION}{endpoint}"
+        headers = {
+            'X-Shopify-Access-Token': Config.SHOPIFY_TOKEN,
+            'Content-Type': 'application/json'
+        }
+        
+        try:
+            if method.upper() == 'GET':
+                response = requests.get(url, headers=headers, params=params, timeout=30)
+            else:
+                response = requests.request(method, url, headers=headers, json=params, timeout=30)
+            
+            response.raise_for_status()
+            return response.json()
+        except requests.exceptions.RequestException as e:
+            logger.error(f"Shopify API request failed: {e}")
+            if hasattr(e, 'response') and e.response is not None:
+                logger.error(f"Response: {e.response.text}")
+            raise
     
     def _retry_request(self, func, *args, **kwargs):
         """
@@ -73,7 +95,7 @@ class ShopifyHandler:
     
     def get_all_products(self, limit: int = 250) -> List[Dict[str, Any]]:
         """
-        Fetch all products from Shopify using shopify-python-api==1.0.1.
+        Fetch all products from Shopify using direct HTTP requests.
         
         Args:
             limit: Maximum products per page (default: 250, max: 250)
@@ -85,18 +107,20 @@ class ShopifyHandler:
             logger.info("[DRY RUN] Would fetch all products from Shopify")
             return []
         
-        if shopify is None:
-            raise ImportError("shopify-python-api library is not installed")
-        
         products = []
-        page = 1
+        page_info = None
         
         try:
             while True:
-                # Use ShopifyResource.get for API 2025-10
+                params = {'limit': limit}
+                if page_info:
+                    params['page_info'] = page_info
+                
                 response = self._retry_request(
-                    shopify.ShopifyResource.get,
-                    f"/products.json?limit={limit}&page={page}"
+                    self._make_shopify_request,
+                    '/products.json',
+                    'GET',
+                    params
                 )
                 
                 if not response or 'products' not in response:
@@ -110,21 +134,39 @@ class ShopifyHandler:
                 for product_data in page_products:
                     products.append(self._product_dict_to_dict(product_data))
                 
-                if len(page_products) < limit:
+                # Check for pagination (Shopify uses Link header or page_info)
+                link_header = response.get('_headers', {}).get('link', '') if isinstance(response, dict) else ''
+                if not link_header and len(page_products) < limit:
                     break
                 
-                page += 1
+                # Try to get next page info from response
+                if 'page_info' in response:
+                    page_info = response['page_info']
+                else:
+                    break
+                
                 logger.info(f"Fetched {len(products)} products so far...")
                 
         except Exception as e:
             logger.error(f"Error fetching products: {e}")
-            # Fallback to Product.find if available
+            # If pagination fails, try simple page-based approach
             try:
-                if Product:
-                    page_products = self._retry_request(Product.find, limit=limit)
-                    for product in page_products:
-                        products.append(self._product_to_dict(product))
-            except:
+                for page in range(1, 10):  # Limit to 10 pages max
+                    params = {'limit': limit, 'page': page}
+                    response = self._retry_request(
+                        self._make_shopify_request,
+                        '/products.json',
+                        'GET',
+                        params
+                    )
+                    if not response or 'products' not in response or not response['products']:
+                        break
+                    for product_data in response['products']:
+                        products.append(self._product_dict_to_dict(product_data))
+                    if len(response['products']) < limit:
+                        break
+            except Exception as e2:
+                logger.error(f"Fallback pagination also failed: {e2}")
                 raise
         
         logger.info(f"Successfully fetched {len(products)} products")
@@ -212,7 +254,7 @@ class ShopifyHandler:
     
     def get_product_by_id(self, product_id: str) -> Optional[Dict[str, Any]]:
         """
-        Fetch a single product by ID.
+        Fetch a single product by ID using direct HTTP requests.
         
         Args:
             product_id: Shopify product ID
@@ -225,15 +267,22 @@ class ShopifyHandler:
             return None
         
         try:
-            product = self._retry_request(Product.find, product_id)
-            return self._product_to_dict(product)
+            response = self._retry_request(
+                self._make_shopify_request,
+                f'/products/{product_id}.json',
+                'GET'
+            )
+            
+            if response and 'product' in response:
+                return self._product_dict_to_dict(response['product'])
+            return None
         except Exception as e:
             logger.error(f"Error fetching product {product_id}: {e}")
             return None
     
     def get_inventory_levels(self, inventory_item_ids: List[str] = None) -> List[Dict[str, Any]]:
         """
-        Fetch inventory levels for products.
+        Fetch inventory levels for products using direct HTTP requests.
         
         Args:
             inventory_item_ids: Optional list of inventory item IDs to filter
@@ -246,47 +295,39 @@ class ShopifyHandler:
             return []
         
         try:
-            # Fetch inventory levels
             inventory_levels = []
             
             if inventory_item_ids:
                 # Fetch specific inventory items
                 for item_id in inventory_item_ids:
                     try:
-                        item = self._retry_request(InventoryItem.find, item_id)
-                        # Get inventory levels for this item
-                        levels = item.inventory_levels()
-                        for level in levels:
-                            inventory_levels.append({
-                                'inventory_item_id': item_id,
-                                'location_id': level.location_id,
-                                'available': level.available,
-                                'updated_at': level.updated_at,
-                            })
+                        response = self._retry_request(
+                            self._make_shopify_request,
+                            f'/inventory_items/{item_id}/inventory_levels.json',
+                            'GET'
+                        )
+                        if response and 'inventory_levels' in response:
+                            for level in response['inventory_levels']:
+                                inventory_levels.append({
+                                    'inventory_item_id': item_id,
+                                    'location_id': level.get('location_id'),
+                                    'available': level.get('available', 0),
+                                    'updated_at': level.get('updated_at'),
+                                })
                     except Exception as e:
                         logger.warning(f"Could not fetch inventory for item {item_id}: {e}")
             else:
-                # Fetch all products and their inventory
+                # Fetch all products and extract inventory from variants
                 products = self.get_all_products()
                 for product in products:
                     for variant in product.get('variants', []):
-                        if variant.get('inventory_item_id'):
-                            try:
-                                item = self._retry_request(
-                                    InventoryItem.find,
-                                    variant['inventory_item_id']
-                                )
-                                levels = item.inventory_levels()
-                                for level in levels:
-                                    inventory_levels.append({
-                                        'inventory_item_id': variant['inventory_item_id'],
-                                        'sku': variant['sku'],
-                                        'location_id': level.location_id,
-                                        'available': level.available,
-                                        'updated_at': level.updated_at,
-                                    })
-                            except Exception as e:
-                                logger.warning(f"Could not fetch inventory for variant {variant.get('sku')}: {e}")
+                        if variant.get('inventory_item_id') and variant.get('sku'):
+                            inventory_levels.append({
+                                'inventory_item_id': variant['inventory_item_id'],
+                                'sku': variant['sku'],
+                                'available': variant.get('inventory_quantity', 0),
+                                'updated_at': product.get('updated_at'),
+                            })
             
             return inventory_levels
             
@@ -296,7 +337,7 @@ class ShopifyHandler:
     
     def get_recent_orders(self, limit: int = 50, status: str = 'open') -> List[Dict[str, Any]]:
         """
-        Fetch recent orders from Shopify.
+        Fetch recent orders from Shopify using direct HTTP requests.
         
         Args:
             limit: Maximum number of orders to fetch
@@ -310,37 +351,44 @@ class ShopifyHandler:
             return []
         
         try:
-            orders = self._retry_request(
-                Order.find,
-                limit=limit,
-                status=status,
-                order='created_at DESC'
+            params = {
+                'limit': limit,
+                'status': status,
+                'order': 'created_at DESC'
+            }
+            
+            response = self._retry_request(
+                self._make_shopify_request,
+                '/orders.json',
+                'GET',
+                params
             )
             
-            order_list = []
-            for order in orders:
-                order_list.append({
-                    'id': order.id,
-                    'order_number': order.order_number,
-                    'email': order.email,
-                    'financial_status': order.financial_status,
-                    'fulfillment_status': order.fulfillment_status,
-                    'line_items': [
-                        {
-                            'sku': item.sku,
-                            'title': item.title,
-                            'quantity': item.quantity,
-                            'price': item.price,
-                            'variant_id': item.variant_id,
-                        }
-                        for item in order.line_items
-                    ],
-                    'total_price': order.total_price,
-                    'created_at': order.created_at,
-                    'updated_at': order.updated_at,
-                })
+            orders = []
+            if response and 'orders' in response:
+                for order_data in response['orders']:
+                    orders.append({
+                        'id': order_data.get('id'),
+                        'order_number': order_data.get('order_number'),
+                        'email': order_data.get('email'),
+                        'financial_status': order_data.get('financial_status'),
+                        'fulfillment_status': order_data.get('fulfillment_status'),
+                        'line_items': [
+                            {
+                                'sku': item.get('sku'),
+                                'title': item.get('title'),
+                                'quantity': item.get('quantity'),
+                                'price': item.get('price'),
+                                'variant_id': item.get('variant_id'),
+                            }
+                            for item in order_data.get('line_items', [])
+                        ],
+                        'total_price': order_data.get('total_price'),
+                        'created_at': order_data.get('created_at'),
+                        'updated_at': order_data.get('updated_at'),
+                    })
             
-            return order_list
+            return orders
             
         except Exception as e:
             logger.error(f"Error fetching orders: {e}")
