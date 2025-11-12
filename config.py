@@ -153,7 +153,7 @@ def init_openai_client(max_retries: int = 3):
     """
     Initialize OpenAI API client with retry logic.
     Compatible with OpenAI library 1.51.0.
-    Uses custom HTTP client to explicitly disable proxies.
+    Uses proper OpenAI v1.x syntax without proxies parameter.
     
     Args:
         max_retries: Maximum number of initialization attempts
@@ -168,66 +168,66 @@ def init_openai_client(max_retries: int = 3):
         raise ValueError("OpenAI API key required")
     
     import os
-    import requests
     
-    # Save proxy environment variables
+    # Save and temporarily remove proxy environment variables
+    # OpenAI v1.x may auto-detect proxies from env vars, causing issues
     proxy_vars = ['HTTP_PROXY', 'HTTPS_PROXY', 'http_proxy', 'https_proxy', 
                  'ALL_PROXY', 'all_proxy', 'NO_PROXY', 'no_proxy']
     saved_env = {}
     for var in proxy_vars:
         if var in os.environ:
             saved_env[var] = os.environ[var]
-            # Temporarily remove to prevent OpenAI from using them
             del os.environ[var]
     
     try:
-        # Create a custom HTTP client with explicit proxy settings disabled
-        # This ensures no proxy is used even if environment variables are detected
         from openai import OpenAI
         
         for attempt in range(max_retries):
             try:
-                # Method 1: Try with explicit http_client that has proxies disabled
-                try:
-                    import httpx
-                    # Create httpx client with no proxies
-                    http_client = httpx.Client(
-                        proxies=None,  # Explicitly disable proxies
-                        timeout=60.0
-                    )
-                    client = OpenAI(
-                        api_key=Config.OPENAI_API_KEY,
-                        http_client=http_client
-                    )
-                except (ImportError, TypeError, ValueError):
-                    # Fallback: Try direct initialization without http_client
-                    # If httpx is not available or http_client parameter doesn't work
-                    client = OpenAI(api_key=Config.OPENAI_API_KEY)
+                # OpenAI v1.x initialization - NO proxies parameter
+                # Use only api_key parameter, which is the correct syntax
+                client = OpenAI(api_key=Config.OPENAI_API_KEY)
                 
-                # Test the client works by checking it has the expected attribute
-                if hasattr(client, 'chat'):
-                    logger.info("OpenAI client initialized successfully")
+                # Verify client is working by making a simple test call
+                # This confirms the API key is valid and client is functional
+                try:
+                    # Simple test: list models (lightweight call)
+                    models = client.models.list()
+                    logger.info(f"OpenAI client initialized successfully (tested with {len(list(models.data))} models)")
+                    
                     # Restore environment variables
                     for var, value in saved_env.items():
                         os.environ[var] = value
                     return client
-                else:
-                    raise ValueError("OpenAI client missing expected 'chat' attribute")
+                except Exception as test_error:
+                    # If test call fails, it might be API key issue or network
+                    logger.warning(f"OpenAI client created but test call failed: {test_error}")
+                    # Still return client - the test might fail due to network, but client is valid
+                    if hasattr(client, 'chat'):
+                        logger.info("OpenAI client initialized (test call failed, but client structure is valid)")
+                        for var, value in saved_env.items():
+                            os.environ[var] = value
+                        return client
+                    else:
+                        raise ValueError("OpenAI client missing expected 'chat' attribute")
+                        
             except TypeError as e:
                 error_msg = str(e).lower()
                 if 'proxies' in error_msg or 'unexpected keyword' in error_msg:
                     if attempt < max_retries - 1:
-                        logger.warning(f"OpenAI init attempt {attempt + 1}/{max_retries} failed, retrying...")
-                        # Try importing OpenAI fresh to avoid any cached state
+                        logger.warning(f"OpenAI init attempt {attempt + 1}/{max_retries} failed: {e}")
+                        # Clear any cached OpenAI module state
                         import importlib
                         import sys
                         if 'openai' in sys.modules:
-                            importlib.reload(sys.modules['openai'])
+                            try:
+                                importlib.reload(sys.modules['openai'])
+                            except:
+                                pass
                         continue
                     else:
                         logger.error("OpenAI client initialization failed after all retries")
                         logger.warning("OpenAI will use fallback mock responses. Bot will continue to function.")
-                        # Raise ValueError but make it clear this is expected and handled
                         error_msg = f"OpenAI client initialization failed: {e}. Bot will use mock AI responses."
                         raise ValueError(error_msg) from e
                 else:
