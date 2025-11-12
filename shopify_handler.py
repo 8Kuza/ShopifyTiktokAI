@@ -38,7 +38,7 @@ class ShopifyHandler:
             raise ValueError("Shopify store and token required")
         return True
     
-    def _make_shopify_request(self, endpoint: str, method: str = 'GET', params: Dict[str, Any] = None) -> Dict[str, Any]:
+    def _make_shopify_request(self, endpoint: str, method: str = 'GET', params: Dict[str, Any] = None) -> tuple:
         """
         Make authenticated request to Shopify API.
         
@@ -48,7 +48,7 @@ class ShopifyHandler:
             params: Query parameters
             
         Returns:
-            API response as dictionary
+            Tuple of (response_json, response_headers) for pagination support
         """
         url = f"https://{Config.SHOPIFY_STORE}/admin/api/{Config.SHOPIFY_API_VERSION}{endpoint}"
         headers = {
@@ -63,7 +63,8 @@ class ShopifyHandler:
                 response = requests.request(method, url, headers=headers, json=params, timeout=30)
             
             response.raise_for_status()
-            return response.json()
+            # Return both JSON and headers for pagination support
+            return response.json(), response.headers
         except requests.exceptions.RequestException as e:
             logger.error(f"Shopify API request failed: {e}")
             if hasattr(e, 'response') and e.response is not None:
@@ -116,17 +117,17 @@ class ShopifyHandler:
                 if page_info:
                     params['page_info'] = page_info
                 
-                response = self._retry_request(
+                response_data, response_headers = self._retry_request(
                     self._make_shopify_request,
                     '/products.json',
                     'GET',
                     params
                 )
                 
-                if not response or 'products' not in response:
+                if not response_data or 'products' not in response_data:
                     break
                 
-                page_products = response['products']
+                page_products = response_data['products']
                 
                 if not page_products:
                     break
@@ -134,14 +135,20 @@ class ShopifyHandler:
                 for product_data in page_products:
                     products.append(self._product_dict_to_dict(product_data))
                 
-                # Check for pagination (Shopify uses Link header or page_info)
-                link_header = response.get('_headers', {}).get('link', '') if isinstance(response, dict) else ''
+                # Check for pagination using Link header (Shopify pagination)
+                link_header = response_headers.get('Link', '')
                 if not link_header and len(page_products) < limit:
                     break
                 
-                # Try to get next page info from response
-                if 'page_info' in response:
-                    page_info = response['page_info']
+                # Extract next page_info from Link header if present
+                if link_header and 'rel="next"' in link_header:
+                    # Extract page_info from Link header
+                    import re
+                    match = re.search(r'page_info=([^&>]+)', link_header)
+                    if match:
+                        page_info = match.group(1)
+                    else:
+                        break
                 else:
                     break
                 
@@ -153,17 +160,17 @@ class ShopifyHandler:
             try:
                 for page in range(1, 10):  # Limit to 10 pages max
                     params = {'limit': limit, 'page': page}
-                    response = self._retry_request(
+                    response_data, _ = self._retry_request(
                         self._make_shopify_request,
                         '/products.json',
                         'GET',
                         params
                     )
-                    if not response or 'products' not in response or not response['products']:
+                    if not response_data or 'products' not in response_data or not response_data['products']:
                         break
-                    for product_data in response['products']:
+                    for product_data in response_data['products']:
                         products.append(self._product_dict_to_dict(product_data))
-                    if len(response['products']) < limit:
+                    if len(response_data['products']) < limit:
                         break
             except Exception as e2:
                 logger.error(f"Fallback pagination also failed: {e2}")
@@ -228,14 +235,14 @@ class ShopifyHandler:
             return None
         
         try:
-            response = self._retry_request(
+            response_data, _ = self._retry_request(
                 self._make_shopify_request,
                 f'/products/{product_id}.json',
                 'GET'
             )
             
-            if response and 'product' in response:
-                return self._product_dict_to_dict(response['product'])
+            if response_data and 'product' in response_data:
+                return self._product_dict_to_dict(response_data['product'])
             return None
         except Exception as e:
             logger.error(f"Error fetching product {product_id}: {e}")
@@ -262,13 +269,13 @@ class ShopifyHandler:
                 # Fetch specific inventory items
                 for item_id in inventory_item_ids:
                     try:
-                        response = self._retry_request(
+                        response_data, _ = self._retry_request(
                             self._make_shopify_request,
                             f'/inventory_items/{item_id}/inventory_levels.json',
                             'GET'
                         )
-                        if response and 'inventory_levels' in response:
-                            for level in response['inventory_levels']:
+                        if response_data and 'inventory_levels' in response_data:
+                            for level in response_data['inventory_levels']:
                                 inventory_levels.append({
                                     'inventory_item_id': item_id,
                                     'location_id': level.get('location_id'),
@@ -318,7 +325,7 @@ class ShopifyHandler:
                 'order': 'created_at DESC'
             }
             
-            response = self._retry_request(
+            response_data, _ = self._retry_request(
                 self._make_shopify_request,
                 '/orders.json',
                 'GET',
@@ -326,8 +333,8 @@ class ShopifyHandler:
             )
             
             orders = []
-            if response and 'orders' in response:
-                for order_data in response['orders']:
+            if response_data and 'orders' in response_data:
+                for order_data in response_data['orders']:
                     orders.append({
                         'id': order_data.get('id'),
                         'order_number': order_data.get('order_number'),
