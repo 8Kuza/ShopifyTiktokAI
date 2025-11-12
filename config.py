@@ -115,6 +115,7 @@ def init_shopify_client():
 def init_openai_client():
     """
     Initialize OpenAI API client.
+    Compatible with OpenAI library 1.51.0.
     
     Returns:
         OpenAI client instance
@@ -122,7 +123,43 @@ def init_openai_client():
     if not Config.OPENAI_API_KEY:
         raise ValueError("OpenAI API key required")
     
-    return OpenAI(api_key=Config.OPENAI_API_KEY)
+    # Initialize OpenAI client with explicit api_key parameter only
+    # This avoids any issues with proxy settings or environment variables
+    try:
+        client = OpenAI(api_key=Config.OPENAI_API_KEY)
+        return client
+    except (TypeError, ValueError) as e:
+        error_msg = str(e).lower()
+        # Handle proxy-related errors
+        if 'proxies' in error_msg or 'unexpected keyword' in error_msg:
+            logger.warning("OpenAI client initialization issue detected, trying alternative method")
+            # Try alternative initialization without any extra parameters
+            import os
+            # Save and temporarily clear proxy environment variables
+            proxy_vars = ['HTTP_PROXY', 'HTTPS_PROXY', 'http_proxy', 'https_proxy', 
+                         'ALL_PROXY', 'all_proxy', 'NO_PROXY', 'no_proxy']
+            saved_env = {}
+            for var in proxy_vars:
+                if var in os.environ:
+                    saved_env[var] = os.environ[var]
+                    del os.environ[var]
+            
+            try:
+                # Try initialization again without proxy env vars
+                client = OpenAI(api_key=Config.OPENAI_API_KEY)
+                # Restore environment variables
+                for var, value in saved_env.items():
+                    os.environ[var] = value
+                return client
+            except Exception as e2:
+                # Restore environment variables even if it fails
+                for var, value in saved_env.items():
+                    os.environ[var] = value
+                logger.error(f"Failed to initialize OpenAI client even after clearing proxy vars: {e2}")
+                raise ValueError(f"OpenAI client initialization failed: {e2}") from e2
+        else:
+            # Re-raise if it's a different error
+            raise
 
 
 # Initialize logger
