@@ -1,26 +1,31 @@
-# TikTok Shop AI Sync Bot
+# Shopify-Only AI Sync Bot with Mock TikTok
 
-A production-ready Python automation tool that syncs inventory and products from Shopify to TikTok Shop in real-time, with AI-enhanced mapping for categories, tags, and hashtags. Built for DTC brand agencies requiring low-latency, error-handling, and scalable operations.
+A production-ready Python automation tool for syncing inventory and products from Shopify with AI optimization. Designed as an MVP for a 17-year-old's ($497 beta) agency service. Runs on Render, syncs Shopify inventory/products with AI optimization, and mocks TikTok API calls until approval (3-5 days). Built for DTC brand agencies requiring low-latency, error-handling, and scalable operations.
 
 ## Features
 
-- **Inventory Sync**: Polls Shopify for stock changes on variants/SKUs and pushes updates to TikTok Shop API to prevent oversells. Handles bulk operations for 100+ products.
-- **Product Sync**: Pulls product data (title, description, images, variants) from Shopify, uses OpenAI to "smart map" to TikTok categories (auto-adds trending hashtags like "Y2K aesthetic" based on description), then bulk-uploads/edits on TikTok.
-- **Order Sync**: Listens for new TikTok orders, routes to Shopify for fulfillment, and updates tracking back to TikTok.
-- **AI Layer**: Uses OpenAI (gpt-4o-mini) for intelligent mapping: Input Shopify product JSON → Output optimized TikTok payload (categories, keywords, hashtags). Includes error retries and caching.
-- **Scheduling**: Configurable polling intervals (default: 5 minutes) using APScheduler.
-- **Error Handling**: Retry logic with exponential backoff, comprehensive logging, and optional notifications.
-- **Testing**: Dry-run mode for testing without API calls, comprehensive unit tests.
+- **Shopify Sync**: Polls Shopify dev store every 5 minutes for product/inventory changes using direct HTTP requests (no external library dependencies)
+- **AI Mapping**: Uses OpenAI (gpt-4o-mini, v1.51.0) to optimize Shopify product titles/descriptions with trending hashtags (e.g., #TikTokMadeMeBuyIt). Includes fallback to mock data if OpenAI unavailable.
+- **Mock TikTok**: Automatically mocks TikTok API calls if `TIKTOK_APP_KEY` is missing. Logs `[MOCK]` messages until TikTok API approval (3-5 days).
+- **Error Prevention**:
+  - Validates all env vars on startup (raises ValueError if missing)
+  - Handles OpenAI initialization failures with retries (3x) and fallback to mock data
+  - Checks Shopify API rate limits (warns if >90% usage via `X-Shopify-Shop-Api-Call-Limit` header)
+  - Logs all errors to file + console with timestamps
+- **Scheduling**: Configurable polling intervals (default: 5 minutes) using APScheduler
+- **Render Optimized**: Includes `runtime.txt` for Python 3.12, Flask health endpoint, auto-restart on crash
+- **Testing**: `--dry-run` flag to simulate without API calls, comprehensive unit tests
 
 ## Tech Stack
 
-- **Python 3.12+**
-- **Shopify**: `shopify-python-api` library
-- **TikTok Shop**: `requests` for API calls (base URL: `https://partner.tiktokshop.com/api`)
-- **OpenAI**: `openai` library (gpt-4o-mini model)
-- **Scheduling**: `APScheduler` for cron-like polling
+- **Python 3.12+** (specified in `runtime.txt` for Render)
+- **Shopify**: Direct HTTP requests via `requests` library (no external Shopify library needed)
+- **TikTok Shop**: `requests` for API calls (base URL: `https://partner.tiktokshop.com/api`) - MOCK MODE until API approval
+- **OpenAI**: `openai==1.51.0` library (gpt-4o-mini model) with proxy error handling
+- **Scheduling**: `APScheduler==3.10.4` for cron-like polling
+- **Web Framework**: `flask==3.0.3` for `/health` endpoint (Render deployment)
 - **Environment**: `.env` file for configuration
-- **Logging**: Python `logging` module (console + file output)
+- **Logging**: Python `logging` module (console + file output: `sync_bot.log`)
 
 ## Installation
 
@@ -47,29 +52,28 @@ A production-ready Python automation tool that syncs inventory and products from
 
 4. **Configure your `.env` file** with your API keys:
    ```env
-   # Shopify Configuration
+   # Required: Shopify Configuration
    SHOPIFY_STORE=your-store.myshopify.com
    SHOPIFY_TOKEN=your_shopify_access_token
    # Note: SHOPIFY_ACCESS_TOKEN also works (backward compatibility)
 
-   # TikTok Shop Configuration
-   TIKTOK_APP_KEY=your_tiktok_app_key
-   TIKTOK_SECRET=your_tiktok_secret
-   TIKTOK_ACCESS_TOKEN=your_tiktok_access_token
-   TIKTOK_API_BASE=https://partner.tiktokshop.com/api
-
-   # OpenAI Configuration
+   # Required: OpenAI Configuration
    OPENAI_API_KEY=your_openai_api_key
    OPENAI_MODEL=gpt-4o-mini
 
-   # Sync Settings
+   # Optional: TikTok Shop Configuration (will mock if not provided)
+   TIKTOK_APP_KEY=your_tiktok_app_key
+   TIKTOK_SECRET=your_tiktok_secret
+   TIKTOK_API_BASE=https://partner.tiktokshop.com/api
+
+   # Optional: Sync Settings
    SYNC_INTERVAL=300
    BATCH_SIZE=100
-
-   # Retry Settings
    MAX_RETRIES=3
    RETRY_BACKOFF=2.0
    ```
+
+   **Important**: The bot will automatically run in MOCK MODE for TikTok if `TIKTOK_APP_KEY` is missing or doesn't start with `app_`. This allows you to test and deploy while waiting for TikTok API approval (3-5 days).
 
 ## Usage
 
@@ -80,7 +84,7 @@ The bot can be run in several modes:
 #### Single Run (One-time sync)
 
 ```bash
-# Full sync (inventory + products + orders)
+# Full sync (inventory + products)
 python main.py --mode=full
 
 # Inventory sync only
@@ -88,9 +92,6 @@ python main.py --mode=inventory
 
 # Product sync only
 python main.py --mode=products
-
-# Order sync only
-python main.py --mode=orders
 ```
 
 #### Continuous Mode (Scheduled polling)
@@ -107,10 +108,10 @@ python main.py --mode=inventory --interval=60
 
 ```bash
 # Test the sync without making actual API calls
-python main.py --mode=full --dry
+python main.py --mode=full --dry-run
 
 # Test with limited products
-python main.py --mode=products --dry --limit=10
+python main.py --mode=products --dry-run --limit=10
 ```
 
 #### Additional Options
@@ -258,44 +259,76 @@ The bot includes comprehensive error handling:
 - **Efficient Polling**: Only syncs changed items (can be enhanced with webhooks)
 - **Parallel Processing**: Can be extended to use async/await for parallel API calls
 
+## Render Deployment
+
+### Setup on Render
+
+1. **Create a new Web Service** on Render
+2. **Connect your GitHub repository** (https://github.com/8Kuza/ShopifyTiktokAI)
+3. **Configure Build & Start Commands**:
+   - **Build Command**: `pip install -r requirements.txt`
+   - **Start Command**: `python main.py --interval=300`
+4. **Add Environment Variables** in Render dashboard:
+   - `SHOPIFY_STORE`
+   - `SHOPIFY_TOKEN`
+   - `OPENAI_API_KEY`
+   - (Optional) `TIKTOK_APP_KEY`, `TIKTOK_SECRET` (will mock if not provided)
+5. **Health Check**: Render will automatically check `/health` endpoint
+6. **Auto-restart**: Render will automatically restart the service on crash
+
+### Render Optimization Tips
+
+- Use **Free tier** for testing, **Starter tier** ($7/month) for production
+- Enable **Auto-Deploy** from main branch
+- Set up **Health Checks** to monitor service status
+- Use **Environment Groups** to manage multiple services
+
 ## Future Enhancements
 
 ### Recommended Optimizations
 
-1. **Webhooks Instead of Polling**: 
+1. **Shopify Webhooks Instead of Polling** (High Priority):
    - Implement Shopify webhooks for real-time inventory/product updates
+   - Reduces API calls from every 5 minutes to instant updates
+   - Endpoints: `/products/create`, `/products/update`, `/inventory_levels/update`
+   - Reduces latency and API usage
+
+2. **TikTok Shop Webhooks** (After API Approval):
    - Implement TikTok Shop webhooks for order notifications
-   - Reduces API calls and latency
+   - Real-time order processing instead of polling
+   - Endpoints: `/orders/status_change`, `/orders/fulfillment`
 
-2. **Database Integration**:
-   - Store sync state in database (PostgreSQL, MongoDB)
-   - Track last sync timestamps
-   - Enable incremental syncs
+3. **Database Integration**:
+   - Store sync state in PostgreSQL (Render PostgreSQL addon)
+   - Track last sync timestamps per product
+   - Enable incremental syncs (only sync changed items)
+   - Store mapping cache for faster lookups
 
-3. **Async/Await**:
+4. **Render Auto-Scaling**:
+   - Configure auto-scaling based on queue length
+   - Handle high-volume syncs during peak times
+   - Use Render's background workers for heavy processing
+
+5. **Async/Await**:
    - Convert to async/await for parallel API calls
    - Use `aiohttp` for async HTTP requests
-   - Improve throughput for large catalogs
+   - Improve throughput for large catalogs (1000+ products)
 
-4. **Redis Caching**:
+6. **Redis Caching** (Render Redis addon):
    - Replace in-memory cache with Redis
    - Enable distributed caching across multiple instances
    - Better cache management and TTL
+   - Share cache between web service instances
 
-5. **Monitoring & Alerts**:
-   - Integrate with monitoring tools (Datadog, New Relic)
-   - Set up alerts for sync failures
-   - Dashboard for sync statistics
+7. **Monitoring & Alerts**:
+   - Integrate with Render's built-in monitoring
+   - Set up email/Slack alerts for sync failures
+   - Dashboard for sync statistics (success/failure rates)
 
-6. **Rate Limiting**:
-   - Implement rate limiting for API calls
-   - Respect API rate limits from Shopify and TikTok
-   - Queue system for high-volume operations
-
-7. **Multi-Store Support**:
+8. **Multi-Store Support**:
    - Support multiple Shopify stores
    - Support multiple TikTok Shop accounts
-   - Configuration per store/account
+   - Configuration per store/account via environment groups
 
 ## Troubleshooting
 
