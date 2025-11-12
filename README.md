@@ -32,8 +32,8 @@ A production-ready Python automation tool for syncing inventory and products fro
 ### Prerequisites
 
 - Python 3.12 or higher
-- Shopify store with API access
-- TikTok Shop Partner account with API credentials
+- Shopify store with API access (see "Getting Your Shopify Token" below)
+- TikTok Shop Partner account with API credentials (optional - will mock if not provided)
 - OpenAI API key
 
 ### Setup
@@ -74,6 +74,51 @@ A production-ready Python automation tool for syncing inventory and products fro
    ```
 
    **Important**: The bot will automatically run in MOCK MODE for TikTok if `TIKTOK_APP_KEY` is missing or doesn't start with `app_`. This allows you to test and deploy while waiting for TikTok API approval (3-5 days).
+
+### Getting Your Shopify Admin API Access Token
+
+If you don't have a Shopify token yet, follow these steps:
+
+1. **Log into your Shopify Admin** (https://your-store.myshopify.com/admin)
+
+2. **Navigate to Apps**:
+   - Click **Settings** (bottom left)
+   - Click **Apps and sales channels**
+   - Click **Develop apps** (top right)
+
+3. **Create a new app**:
+   - Click **Create an app**
+   - Enter a name (e.g., "TikTok Sync Bot")
+   - Enter your email (optional)
+   - Click **Create app**
+
+4. **Configure API scopes**:
+   - Click **Configure Admin API scopes**
+   - Enable these scopes (minimum required):
+     - ✅ `read_products` - Read product information
+     - ✅ `read_inventory` - Read inventory levels
+     - ✅ `write_inventory` (optional) - Update inventory levels
+   - Click **Save**
+
+5. **Install the app**:
+   - Click **Install app** (top right)
+   - Confirm installation
+
+6. **Copy the Admin API access token**:
+   - After installation, you'll see **API credentials**
+   - Under **Admin API access token**, click **Reveal token once**
+   - **Copy the token** (it starts with `shpat_...`)
+   - ⚠️ **Important**: Save this token immediately - you can only see it once!
+
+7. **Add to your `.env` file**:
+   ```env
+   SHOPIFY_TOKEN=shpat_xxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+   ```
+
+**Note**: If you lose the token, you'll need to:
+- Go back to the app settings
+- Click **API credentials**
+- Click **Regenerate** to create a new token
 
 ## Usage
 
