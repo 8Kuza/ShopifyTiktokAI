@@ -7,7 +7,8 @@ import os
 import logging
 from pathlib import Path
 from dotenv import load_dotenv
-from openai import OpenAI
+# NOTE: Do NOT import OpenAI at module level - import it inside init_openai_client()
+# after clearing proxy environment variables to prevent proxy-related errors
 
 # Load environment variables from .env file
 load_dotenv()
@@ -216,14 +217,13 @@ def init_openai_client(max_retries: int = 3):
                 if 'proxies' in error_msg or 'unexpected keyword' in error_msg:
                     if attempt < max_retries - 1:
                         logger.warning(f"OpenAI init attempt {attempt + 1}/{max_retries} failed: {e}")
-                        # Clear any cached OpenAI module state
-                        import importlib
-                        import sys
+                        # Clear OpenAI module from cache and re-import
                         if 'openai' in sys.modules:
-                            try:
-                                importlib.reload(sys.modules['openai'])
-                            except:
-                                pass
+                            del sys.modules['openai']
+                        if 'openai._client' in sys.modules:
+                            del sys.modules['openai._client']
+                        # Re-import after clearing
+                        from openai import OpenAI
                         continue
                     else:
                         logger.error("OpenAI client initialization failed after all retries")

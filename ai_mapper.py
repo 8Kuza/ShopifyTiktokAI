@@ -9,7 +9,8 @@ import json
 import hashlib
 from typing import Dict, Any, Optional
 from functools import lru_cache
-from openai import OpenAI
+# NOTE: Do NOT import OpenAI at module level - it's initialized via config.init_openai_client()
+# after proxy environment variables are cleared
 from config import Config
 
 logger = logging.getLogger(__name__)
