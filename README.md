@@ -330,28 +330,55 @@ The bot includes comprehensive error handling:
    - Support multiple TikTok Shop accounts
    - Configuration per store/account via environment groups
 
+## Mock Mode
+
+The bot automatically runs in **MOCK MODE** for TikTok when:
+- `TIKTOK_APP_KEY` is not set
+- `TIKTOK_APP_KEY` doesn't start with `app_`
+
+In MOCK MODE:
+- All TikTok API calls are logged with `[MOCK]` prefix
+- No actual TikTok API requests are made
+- Perfect for testing and deployment while waiting for TikTok API approval (3-5 days)
+- Once TikTok API keys are approved, simply add them to `.env` and the bot will automatically switch to real API calls
+
+Example MOCK output:
+```
+[MOCK] TikTok Shop: SKU TEST-001 → Stock 100
+[MOCK] TikTok Shop: Would create 5 products
+```
+
 ## Troubleshooting
 
 ### Common Issues
 
-1. **Authentication Errors**:
-   - Verify API keys in `.env` file
-   - Check token expiration
-   - Ensure correct store URL format
+1. **OpenAI Client Initialization Error (`proxies` parameter)**:
+   - **Fixed**: The bot now handles proxy environment variables automatically
+   - If you still see this error, check that `openai==1.51.0` is installed correctly
+   - The bot will automatically clear proxy env vars during initialization
+   - **Fallback**: The bot will use mock AI responses if OpenAI fails to initialize
 
-2. **Rate Limiting**:
-   - Reduce `SYNC_INTERVAL` or `BATCH_SIZE`
-   - Implement rate limiting (see Future Enhancements)
+2. **Missing Environment Variables**:
+   - **Error**: `Missing required environment variables: SHOPIFY_STORE, SHOPIFY_TOKEN, OPENAI_API_KEY`
+   - **Fix**: Ensure all required variables are set in your `.env` file
+   - Run with `--dry-run` to test configuration without API calls
 
-3. **AI Mapping Failures**:
+3. **Shopify API Rate Limiting**:
+   - The bot automatically monitors rate limits via `X-Shopify-Shop-Api-Call-Limit` header
+   - Warnings are logged when usage exceeds 90%
+   - **Fix**: Reduce `SYNC_INTERVAL` or `BATCH_SIZE` in `.env`
+
+4. **OpenAI API Failures**:
+   - The bot automatically falls back to mock AI responses if OpenAI fails
    - Check OpenAI API key and quota
    - Verify internet connection
-   - Check OpenAI API status
+   - Check OpenAI API status at https://status.openai.com
 
-4. **Inventory Sync Issues**:
-   - Verify SKU mapping between Shopify and TikTok
-   - Check inventory item IDs
-   - Ensure warehouse/location IDs are correct
+5. **Render Deployment Issues**:
+   - Ensure `runtime.txt` specifies `python-3.12`
+   - Check that all environment variables are set in Render dashboard
+   - Verify the health endpoint is accessible at `/health`
+   - Check Render logs for detailed error messages
 
 ## License
 
