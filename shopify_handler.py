@@ -77,6 +77,22 @@ class ShopifyHandler:
             else:
                 response = requests.request(method, url, headers=headers, json=params, timeout=30)
             
+            # Handle authentication errors (401, 403) - don't retry these
+            if response.status_code == 401:
+                error_msg = response.json().get('errors', 'Invalid API key or access token')
+                logger.error(f"Shopify API authentication failed (401): {error_msg}")
+                logger.error("Please check your SHOPIFY_TOKEN environment variable:")
+                logger.error("  1. Verify the token is correct in your .env file")
+                logger.error("  2. Ensure the token has not expired")
+                logger.error("  3. Check that the token has required permissions (read_products, read_inventory)")
+                logger.error("  4. Regenerate the token in Shopify Admin if needed")
+                raise ValueError(f"Shopify API authentication failed: {error_msg}. Check SHOPIFY_TOKEN configuration.")
+            
+            if response.status_code == 403:
+                logger.error("Shopify API access forbidden (403): Token may not have required permissions")
+                logger.error("Required permissions: read_products, read_inventory, write_inventory")
+                raise ValueError("Shopify API access forbidden. Check token permissions.")
+            
             response.raise_for_status()
             
             # Check rate limits from X-Shopify-Shop-Api-Call-Limit header
@@ -97,7 +113,22 @@ class ShopifyHandler:
             
             # Return both JSON and headers for pagination support
             return response.json(), response.headers
+        except ValueError:
+            # Re-raise authentication errors immediately (no retry)
+            raise
         except requests.exceptions.RequestException as e:
+            # Check if it's an authentication error
+            if hasattr(e, 'response') and e.response is not None:
+                if e.response.status_code in (401, 403):
+                    error_data = {}
+                    try:
+                        error_data = e.response.json()
+                    except:
+                        pass
+                    error_msg = error_data.get('errors', str(e))
+                    logger.error(f"Shopify API authentication failed ({e.response.status_code}): {error_msg}")
+                    raise ValueError(f"Shopify API authentication failed: {error_msg}. Check SHOPIFY_TOKEN configuration.") from e
+            
             logger.error(f"Shopify API request failed: {e}")
             if hasattr(e, 'response') and e.response is not None:
                 logger.error(f"Response: {e.response.text}")
@@ -106,6 +137,7 @@ class ShopifyHandler:
     def _retry_request(self, func, *args, **kwargs):
         """
         Retry a function call with exponential backoff.
+        Skips retries for authentication errors (401, 403) and ValueError.
         
         Args:
             func: Function to retry
@@ -118,6 +150,18 @@ class ShopifyHandler:
         for attempt in range(Config.MAX_RETRIES):
             try:
                 return func(*args, **kwargs)
+            except (ValueError, requests.exceptions.HTTPError) as e:
+                # Don't retry authentication errors (401, 403) or configuration errors
+                if isinstance(e, ValueError) or (hasattr(e, 'response') and e.response and e.response.status_code in (401, 403)):
+                    logger.error(f"Authentication/configuration error - not retrying: {e}")
+                    raise
+                # For other HTTP errors, retry
+                if attempt == Config.MAX_RETRIES - 1:
+                    logger.error(f"Max retries reached for {func.__name__}: {e}")
+                    raise
+                wait_time = Config.RETRY_BACKOFF ** attempt
+                logger.warning(f"Retry {attempt + 1}/{Config.MAX_RETRIES} for {func.__name__} after {wait_time}s")
+                time.sleep(wait_time)
             except Exception as e:
                 if attempt == Config.MAX_RETRIES - 1:
                     logger.error(f"Max retries reached for {func.__name__}: {e}")

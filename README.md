@@ -352,29 +352,38 @@ Example MOCK output:
 
 ### Common Issues
 
-1. **OpenAI Client Initialization Error (`proxies` parameter)**:
+1. **Shopify API Authentication Error (401 Unauthorized)**:
+   - **Error**: `Invalid API key or access token (unrecognized login or wrong password)`
+   - **Fix**: 
+     - Verify your `SHOPIFY_TOKEN` is correct in your `.env` file or Render environment variables
+     - Ensure the token hasn't expired (regenerate in Shopify Admin if needed)
+     - Check that the token has required permissions: `read_products`, `read_inventory`, `write_inventory`
+     - To get a new token: Shopify Admin → Settings → Apps and sales channels → Develop apps → Create app → Configure Admin API scopes → Install app → Copy Admin API access token
+   - **Note**: The bot will not retry on authentication errors (401/403) as retrying won't help
+
+2. **OpenAI Client Initialization Error (`proxies` parameter)**:
    - **Fixed**: The bot now handles proxy environment variables automatically
    - If you still see this error, check that `openai==1.51.0` is installed correctly
    - The bot will automatically clear proxy env vars during initialization
-   - **Fallback**: The bot will use mock AI responses if OpenAI fails to initialize
+   - **Fallback**: The bot will use mock AI responses if OpenAI fails to initialize (bot continues to function)
 
-2. **Missing Environment Variables**:
+3. **Missing Environment Variables**:
    - **Error**: `Missing required environment variables: SHOPIFY_STORE, SHOPIFY_TOKEN, OPENAI_API_KEY`
-   - **Fix**: Ensure all required variables are set in your `.env` file
+   - **Fix**: Ensure all required variables are set in your `.env` file or Render dashboard
    - Run with `--dry-run` to test configuration without API calls
 
-3. **Shopify API Rate Limiting**:
+4. **Shopify API Rate Limiting**:
    - The bot automatically monitors rate limits via `X-Shopify-Shop-Api-Call-Limit` header
    - Warnings are logged when usage exceeds 90%
    - **Fix**: Reduce `SYNC_INTERVAL` or `BATCH_SIZE` in `.env`
 
-4. **OpenAI API Failures**:
+5. **OpenAI API Failures**:
    - The bot automatically falls back to mock AI responses if OpenAI fails
    - Check OpenAI API key and quota
    - Verify internet connection
    - Check OpenAI API status at https://status.openai.com
 
-5. **Render Deployment Issues**:
+6. **Render Deployment Issues**:
    - Ensure `runtime.txt` specifies `python-3.12`
    - Check that all environment variables are set in Render dashboard
    - Verify the health endpoint is accessible at `/health`
