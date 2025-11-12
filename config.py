@@ -227,9 +227,9 @@ def init_openai_client(max_retries: int = 3):
                     else:
                         logger.error("OpenAI client initialization failed after all retries")
                         logger.warning("OpenAI will use fallback mock responses. Bot will continue to function.")
-                        # Don't raise - let the fallback handle it
-                        raise ValueError(f"OpenAI client initialization failed: {e}. "
-                                       f"Bot will use mock AI responses. Please check OpenAI library version compatibility.") from e
+                        # Raise ValueError but make it clear this is expected and handled
+                        error_msg = f"OpenAI client initialization failed: {e}. Bot will use mock AI responses."
+                        raise ValueError(error_msg) from e
                 else:
                     raise
             except Exception as e:

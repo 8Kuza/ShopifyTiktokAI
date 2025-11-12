@@ -37,12 +37,18 @@ class AIMapper:
                 self.client = init_openai_client(max_retries=3)
                 self.openai_available = True
                 logger.info("OpenAI client initialized successfully")
-            except Exception as e:
+            except (ValueError, TypeError, ImportError, Exception) as e:
+                # Catch all exceptions during OpenAI initialization
+                # Never let OpenAI initialization failure break the bot
                 logger.error(f"Failed to initialize OpenAI client: {e}")
                 if allow_fallback:
                     logger.warning("Falling back to mock AI responses - OpenAI unavailable")
+                    logger.info("Bot will continue to function with mock AI responses")
                     self.openai_available = False
+                    self.client = None
                 else:
+                    # Only raise if fallback is explicitly disabled
+                    logger.error("OpenAI initialization failed and fallback is disabled")
                     raise
     
     def _generate_cache_key(self, product_data: Dict[str, Any]) -> str:
