@@ -48,10 +48,9 @@ A production-ready Python automation tool that syncs inventory and products from
 4. **Configure your `.env` file** with your API keys:
    ```env
    # Shopify Configuration
-   SHOPIFY_API_KEY=your_shopify_api_key
-   SHOPIFY_API_SECRET=your_shopify_api_secret
    SHOPIFY_STORE=your-store.myshopify.com
-   SHOPIFY_ACCESS_TOKEN=your_shopify_access_token
+   SHOPIFY_TOKEN=your_shopify_access_token
+   # Note: SHOPIFY_ACCESS_TOKEN also works (backward compatibility)
 
    # TikTok Shop Configuration
    TIKTOK_APP_KEY=your_tiktok_app_key

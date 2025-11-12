@@ -23,7 +23,8 @@ class Config:
     
     # Shopify Configuration
     SHOPIFY_STORE = os.getenv('SHOPIFY_STORE')  # e.g., 'your-store.myshopify.com'
-    SHOPIFY_TOKEN = os.getenv('SHOPIFY_TOKEN')  # Access token for Shopify API
+    # Accept both SHOPIFY_TOKEN and SHOPIFY_ACCESS_TOKEN for flexibility
+    SHOPIFY_TOKEN = os.getenv('SHOPIFY_TOKEN') or os.getenv('SHOPIFY_ACCESS_TOKEN')  # Access token for Shopify API
     SHOPIFY_API_VERSION = os.getenv('SHOPIFY_API_VERSION', '2025-10')
     
     # TikTok Shop Configuration (optional - will mock if not provided)
