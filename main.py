@@ -1,6 +1,6 @@
 """
-Main orchestration module for TikTok Shop AI Sync bot.
-Handles CLI, scheduling, and coordination of sync operations.
+Main orchestration module for Shopify-Only AI Sync Bot with Mock TikTok.
+Handles CLI, scheduling, Flask health endpoint, and coordination of sync operations.
 """
 
 import argparse
@@ -10,6 +10,7 @@ import sys
 from typing import Optional
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.interval import IntervalTrigger
+from flask import Flask
 
 from config import Config, setup_logging
 from shopify_handler import ShopifyHandler
@@ -17,6 +18,9 @@ from tiktok_handler import TikTokHandler
 from ai_mapper import AIMapper
 
 logger = logging.getLogger(__name__)
+
+# Initialize Flask app for health endpoint (Render deployment)
+app = Flask(__name__)
 
 
 class SyncBot:
@@ -92,7 +96,7 @@ class SyncBot:
     
     def sync_products(self, limit: Optional[int] = None) -> dict:
         """
-        Sync products from Shopify to TikTok Shop with AI mapping.
+        Sync products from Shopify with AI optimization (mock TikTok until approval).
         
         Args:
             limit: Optional limit on number of products to sync
@@ -100,7 +104,7 @@ class SyncBot:
         Returns:
             Dictionary with sync results
         """
-        logger.info("Starting product sync...")
+        logger.info("Starting product sync with AI optimization...")
         results = {
             'success': 0,
             'failed': 0,
@@ -110,7 +114,7 @@ class SyncBot:
         
         try:
             # Fetch products from Shopify
-            products = self.shopify.get_all_products()
+            products = self.shopify.get_all_products(limit=limit or 250)
             if limit:
                 products = products[:limit]
             
@@ -122,12 +126,12 @@ class SyncBot:
             
             logger.info(f"Found {len(products)} products to sync")
             
-            # Map products using AI
-            logger.info("Mapping products with AI...")
+            # Map products using AI for TikTok optimization
+            logger.info("Optimizing products with AI (OpenAI gpt-4o-mini)...")
             tiktok_products = self.ai_mapper.batch_map_products(products)
             
-            # Bulk create/update on TikTok
-            logger.info("Pushing products to TikTok Shop...")
+            # Push to TikTok (will mock if keys not provided)
+            logger.info("Pushing optimized products to TikTok Shop...")
             create_results = self.tiktok.bulk_create_products(tiktok_products)
             
             results['success'] = create_results.get('success', 0)
@@ -212,22 +216,18 @@ class SyncBot:
         return self.tiktok.update_order_tracking(order_id, tracking_number, tracking_url, carrier)
     
     def run_full_sync(self):
-        """Run full sync (inventory + products + orders)."""
+        """Run full sync (inventory + products)."""
         logger.info("=" * 60)
-        logger.info("Starting FULL SYNC")
+        logger.info("Starting FULL SYNC (Shopify → AI Optimization → Mock TikTok)")
         logger.info("=" * 60)
         
         # Sync inventory
         inv_results = self.sync_inventory()
         logger.info(f"Inventory sync: {inv_results}")
         
-        # Sync products
+        # Sync products with AI optimization
         prod_results = self.sync_products()
         logger.info(f"Product sync: {prod_results}")
-        
-        # Sync orders
-        order_results = self.sync_orders()
-        logger.info(f"Order sync: {order_results}")
         
         logger.info("=" * 60)
         logger.info("FULL SYNC COMPLETED")
@@ -261,18 +261,24 @@ class SyncBot:
             logger.info("Scheduler stopped")
 
 
+@app.route('/health')
+def health():
+    """Health check endpoint for Render deployment."""
+    return "AI Sync Bot Running", 200
+
+
 def parse_args():
     """Parse command line arguments."""
     parser = argparse.ArgumentParser(
-        description='TikTok Shop AI Sync Bot - Sync inventory and products from Shopify to TikTok Shop'
+        description='Shopify-Only AI Sync Bot - Sync inventory and products from Shopify with AI optimization (Mock TikTok until approval)'
     )
     
     parser.add_argument(
         '--mode',
         type=str,
-        choices=['full', 'inventory', 'products', 'orders'],
+        choices=['full', 'inventory', 'products'],
         default='full',
-        help='Sync mode: full (all), inventory, products, or orders (default: full)'
+        help='Sync mode: full (all), inventory, or products (default: full)'
     )
     
     parser.add_argument(
@@ -283,8 +289,10 @@ def parse_args():
     )
     
     parser.add_argument(
+        '--dry-run',
         '--dry',
         action='store_true',
+        dest='dry_run',
         help='Dry run mode (simulate without API calls)'
     )
     
@@ -324,7 +332,7 @@ def main():
     
     # Initialize bot
     try:
-        bot = SyncBot(dry_run=args.dry)
+        bot = SyncBot(dry_run=args.dry_run)
     except Exception as e:
         logger.error(f"Failed to initialize sync bot: {e}")
         sys.exit(1)
@@ -332,9 +340,19 @@ def main():
     # Run sync based on mode
     try:
         if args.interval:
-            # Continuous mode with scheduler
+            # Continuous mode with scheduler and Flask
             bot.start_scheduler(interval=args.interval)
-            logger.info("Bot running in continuous mode. Press Ctrl+C to stop.")
+            logger.info(f"Bot running in continuous mode (interval: {args.interval}s). Flask health endpoint available at /health")
+            logger.info("Press Ctrl+C to stop.")
+            
+            # Run Flask in a separate thread for health endpoint
+            import threading
+            flask_thread = threading.Thread(
+                target=lambda: app.run(host='0.0.0.0', port=5000, debug=False, use_reloader=False),
+                daemon=True
+            )
+            flask_thread.start()
+            
             try:
                 while True:
                     time.sleep(1)
@@ -351,9 +369,6 @@ def main():
             elif args.mode == 'products':
                 results = bot.sync_products(limit=args.limit)
                 logger.info(f"Product sync results: {results}")
-            elif args.mode == 'orders':
-                results = bot.sync_orders()
-                logger.info(f"Order sync results: {results}")
     
     except Exception as e:
         logger.error(f"Error during sync: {e}")

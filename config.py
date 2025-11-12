@@ -22,16 +22,17 @@ class Config:
     """Configuration class for managing API keys and settings."""
     
     # Shopify Configuration
-    SHOPIFY_API_KEY = os.getenv('SHOPIFY_API_KEY')
-    SHOPIFY_API_SECRET = os.getenv('SHOPIFY_API_SECRET')
     SHOPIFY_STORE = os.getenv('SHOPIFY_STORE')  # e.g., 'your-store.myshopify.com'
-    SHOPIFY_ACCESS_TOKEN = os.getenv('SHOPIFY_ACCESS_TOKEN')
+    SHOPIFY_TOKEN = os.getenv('SHOPIFY_TOKEN')  # Access token for Shopify API
+    SHOPIFY_API_VERSION = os.getenv('SHOPIFY_API_VERSION', '2025-10')
     
-    # TikTok Shop Configuration
-    TIKTOK_APP_KEY = os.getenv('TIKTOK_APP_KEY')
-    TIKTOK_SECRET = os.getenv('TIKTOK_SECRET')
-    TIKTOK_ACCESS_TOKEN = os.getenv('TIKTOK_ACCESS_TOKEN', '')
+    # TikTok Shop Configuration (optional - will mock if not provided)
+    TIKTOK_APP_KEY = os.getenv('TIKTOK_APP_KEY', '')
+    TIKTOK_SECRET = os.getenv('TIKTOK_SECRET', '')
     TIKTOK_API_BASE = os.getenv('TIKTOK_API_BASE', 'https://partner.tiktokshop.com/api')
+    
+    # Mock Mode Detection
+    MOCK_MODE = True if not TIKTOK_APP_KEY or not TIKTOK_APP_KEY.startswith('app_') else False
     
     # OpenAI Configuration
     OPENAI_API_KEY = os.getenv('OPENAI_API_KEY')
@@ -53,17 +54,17 @@ class Config:
     def validate(cls):
         """Validate that all required configuration is present."""
         required = [
-            ('SHOPIFY_API_KEY', cls.SHOPIFY_API_KEY),
             ('SHOPIFY_STORE', cls.SHOPIFY_STORE),
-            ('SHOPIFY_ACCESS_TOKEN', cls.SHOPIFY_ACCESS_TOKEN),
-            ('TIKTOK_APP_KEY', cls.TIKTOK_APP_KEY),
-            ('TIKTOK_SECRET', cls.TIKTOK_SECRET),
+            ('SHOPIFY_TOKEN', cls.SHOPIFY_TOKEN),
             ('OPENAI_API_KEY', cls.OPENAI_API_KEY),
         ]
         
         missing = [name for name, value in required if not value]
         if missing:
             raise ValueError(f"Missing required environment variables: {', '.join(missing)}")
+        
+        if cls.MOCK_MODE:
+            logger.info("TikTok API keys not provided - running in MOCK MODE")
         
         return True
 
@@ -102,34 +103,26 @@ def setup_logging(log_level=logging.INFO, log_file='sync_bot.log'):
 
 def init_shopify_client():
     """
-    Initialize Shopify API client.
+    Initialize Shopify API client using shopify-python-api==1.0.1.
     
     Returns:
         Configured Shopify session
     """
     if shopify is None:
-        raise ImportError("shopify-python-api library is not installed. Install it with: pip install shopify-python-api")
+        raise ImportError("shopify-python-api library is not installed. Install it with: pip install shopify-python-api==1.0.1")
     
-    if not Config.SHOPIFY_STORE or not Config.SHOPIFY_ACCESS_TOKEN:
-        raise ValueError("Shopify store and access token required")
+    if not Config.SHOPIFY_STORE or not Config.SHOPIFY_TOKEN:
+        raise ValueError("Shopify store and token required")
     
     try:
+        # Set up Shopify API connection
         shopify.ShopifyResource.set_site(
-            f"https://{Config.SHOPIFY_STORE}/admin/api/2024-01"
+            f"https://{Config.SHOPIFY_STORE}/admin/api/{Config.SHOPIFY_API_VERSION}"
         )
-        shopify.Session.setup(
-            api_key=Config.SHOPIFY_API_KEY,
-            secret=Config.SHOPIFY_API_SECRET
-        )
+        shopify.ShopifyResource.set_access_token(Config.SHOPIFY_TOKEN)
         
-        session = shopify.Session(
-            Config.SHOPIFY_STORE,
-            '2024-01',
-            Config.SHOPIFY_ACCESS_TOKEN
-        )
-        shopify.ShopifyResource.activate_session(session)
-        
-        return session
+        logger.info(f"Shopify client initialized for {Config.SHOPIFY_STORE}")
+        return True
     except Exception as e:
         raise ValueError(f"Failed to initialize Shopify client: {e}")
 

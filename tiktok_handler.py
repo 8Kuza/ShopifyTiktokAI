@@ -30,7 +30,10 @@ class TikTokHandler:
         self.app_key = Config.TIKTOK_APP_KEY
         self.app_secret = Config.TIKTOK_SECRET
         self.base_url = Config.TIKTOK_API_BASE
-        self.access_token = Config.TIKTOK_ACCESS_TOKEN
+        self.mock_mode = Config.MOCK_MODE or not self.app_key or not self.app_key.startswith('app_')
+        
+        if self.mock_mode:
+            logger.info("TikTok handler initialized in MOCK MODE - API calls will be logged only")
     
     def _generate_signature(self, method: str, path: str, params: Dict[str, Any], 
                            timestamp: int, body: str = '') -> str:
@@ -163,6 +166,10 @@ class TikTokHandler:
         Returns:
             True if successful, False otherwise
         """
+        if self.mock_mode or self.dry_run:
+            logger.info(f"[MOCK] TikTok Shop: SKU {sku} → Stock {quantity}")
+            return True
+        
         try:
             payload = {
                 'sku_id': sku,
@@ -199,6 +206,14 @@ class TikTokHandler:
         Returns:
             True if successful, False otherwise
         """
+        if self.mock_mode or self.dry_run:
+            logger.info(f"[MOCK] TikTok Shop: Bulk update {len(inventory_updates)} inventory items")
+            for item in inventory_updates[:5]:  # Log first 5
+                logger.info(f"[MOCK]   SKU {item.get('sku')} → Stock {item.get('quantity')}")
+            if len(inventory_updates) > 5:
+                logger.info(f"[MOCK]   ... and {len(inventory_updates) - 5} more items")
+            return True
+        
         try:
             # Split into batches
             batch_size = Config.BATCH_SIZE
@@ -284,6 +299,16 @@ class TikTokHandler:
             'failed': 0,
             'product_ids': []
         }
+        
+        if self.mock_mode or self.dry_run:
+            logger.info(f"[MOCK] TikTok Shop: Would create {len(products)} products")
+            for i, product in enumerate(products[:3], 1):  # Log first 3
+                logger.info(f"[MOCK]   Product {i}: {product.get('title', 'Unknown')}")
+            if len(products) > 3:
+                logger.info(f"[MOCK]   ... and {len(products) - 3} more products")
+            results['success'] = len(products)
+            results['product_ids'] = [f'mock_id_{i}' for i in range(len(products))]
+            return results
         
         try:
             # Split into batches

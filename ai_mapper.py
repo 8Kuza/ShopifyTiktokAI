@@ -84,22 +84,18 @@ class AIMapper:
                     messages=[
                         {
                             "role": "system",
-                            "content": """You are an expert at mapping e-commerce products to TikTok Shop format.
+                            "content": """You are an expert at optimizing e-commerce products for TikTok Shop.
                             Analyze the Shopify product data and provide:
-                            1. Appropriate TikTok Shop category
-                            2. Trending hashtags relevant to the product (5-10 hashtags)
-                            3. SEO keywords (5-10 keywords)
-                            4. Optimized title (max 100 chars, catchy and TikTok-friendly)
-                            5. Optimized description (max 500 chars, engaging and includes key features)
+                            1. Optimized TikTok title (max 100 chars, catchy and TikTok-friendly)
+                            2. Optimized TikTok description (max 500 chars, engaging with trending hashtags)
+                            3. Trending hashtags (5 trending hashtags like #TikTokMadeMeBuyIt, #Y2K, #Aesthetic, etc.)
                             
                             Return your response as valid JSON with these keys:
-                            - category: string
-                            - hashtags: array of strings
-                            - keywords: array of strings
-                            - optimized_title: string
-                            - optimized_description: string
+                            - tiktok_title: string (optimized title)
+                            - tiktok_description: string (optimized description with hashtags)
+                            - hashtags: array of 5 trending hashtag strings
                             
-                            Focus on trending TikTok aesthetics and viral product descriptions."""
+                            Focus on trending TikTok aesthetics, viral product descriptions, and include hashtags like #TikTokMadeMeBuyIt where relevant."""
                         },
                         {
                             "role": "user",
@@ -171,24 +167,22 @@ class AIMapper:
             ],
         }
         
-        prompt = f"""Map this Shopify product to TikTok Shop format:
+        prompt = f"""Optimize this Shopify product for TikTok Shop:
 
 {json.dumps(product_summary, indent=2)}
 
-Provide TikTok-optimized category, hashtags, keywords, title, and description.
-Consider current TikTok trends and aesthetics (Y2K, cottagecore, dark academia, etc.) where relevant."""
+Provide TikTok-optimized title, description with hashtags, and trending hashtags.
+Include hashtags like #TikTokMadeMeBuyIt where relevant. Consider current TikTok trends."""
         
         try:
             # Call OpenAI
             ai_result = self._call_openai(prompt)
             
-            # Build TikTok product payload
+            # Build TikTok product payload (simplified for MVP)
             tiktok_product = {
-                'title': ai_result.get('optimized_title', shopify_product.get('title', '')),
-                'description': ai_result.get('optimized_description', shopify_product.get('description', '')),
-                'category': ai_result.get('category', shopify_product.get('product_type', '')),
+                'title': ai_result.get('tiktok_title', shopify_product.get('title', '')),
+                'description': ai_result.get('tiktok_description', shopify_product.get('description', '')),
                 'hashtags': ai_result.get('hashtags', []),
-                'keywords': ai_result.get('keywords', []),
                 'images': shopify_product.get('images', []),
                 'variants': [],
             }
@@ -234,12 +228,20 @@ Consider current TikTok trends and aesthetics (Y2K, cottagecore, dark academia, 
         """
         logger.warning(f"Using fallback mapping for product {shopify_product.get('id')}")
         
+        # Add trending hashtags to description
+        tags = shopify_product.get('tags', [])[:5]
+        hashtags = [f"#{tag.strip().replace(' ', '')}" if not tag.startswith('#') else tag for tag in tags]
+        if not hashtags:
+            hashtags = ['#TikTokMadeMeBuyIt', '#Trending', '#ShopNow']
+        
+        description = shopify_product.get('description', '')
+        if hashtags:
+            description += f"\n\n{' '.join(hashtags)}"
+        
         return {
             'title': shopify_product.get('title', ''),
-            'description': shopify_product.get('description', ''),
-            'category': shopify_product.get('product_type', 'General'),
-            'hashtags': shopify_product.get('tags', [])[:5],
-            'keywords': shopify_product.get('tags', [])[:5],
+            'description': description,
+            'hashtags': hashtags,
             'images': shopify_product.get('images', []),
             'variants': [
                 {

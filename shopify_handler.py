@@ -43,9 +43,10 @@ class ShopifyHandler:
     def _init_session(self):
         """Initialize Shopify session."""
         if shopify is None:
-            raise ImportError("shopify-python-api library is not installed. Install it with: pip install shopify-python-api")
+            raise ImportError("shopify-python-api library is not installed. Install it with: pip install shopify-python-api==1.0.1")
         from config import init_shopify_client
-        return init_shopify_client()
+        init_shopify_client()
+        return True
     
     def _retry_request(self, func, *args, **kwargs):
         """
@@ -72,7 +73,7 @@ class ShopifyHandler:
     
     def get_all_products(self, limit: int = 250) -> List[Dict[str, Any]]:
         """
-        Fetch all products from Shopify.
+        Fetch all products from Shopify using shopify-python-api==1.0.1.
         
         Args:
             limit: Maximum products per page (default: 250, max: 250)
@@ -84,22 +85,30 @@ class ShopifyHandler:
             logger.info("[DRY RUN] Would fetch all products from Shopify")
             return []
         
+        if shopify is None:
+            raise ImportError("shopify-python-api library is not installed")
+        
         products = []
         page = 1
         
         try:
             while True:
-                page_products = self._retry_request(
-                    Product.find,
-                    limit=limit,
-                    page=page
+                # Use ShopifyResource.get for API 2025-10
+                response = self._retry_request(
+                    shopify.ShopifyResource.get,
+                    f"/products.json?limit={limit}&page={page}"
                 )
+                
+                if not response or 'products' not in response:
+                    break
+                
+                page_products = response['products']
                 
                 if not page_products:
                     break
                 
-                for product in page_products:
-                    products.append(self._product_to_dict(product))
+                for product_data in page_products:
+                    products.append(self._product_dict_to_dict(product_data))
                 
                 if len(page_products) < limit:
                     break
@@ -109,10 +118,58 @@ class ShopifyHandler:
                 
         except Exception as e:
             logger.error(f"Error fetching products: {e}")
-            raise
+            # Fallback to Product.find if available
+            try:
+                if Product:
+                    page_products = self._retry_request(Product.find, limit=limit)
+                    for product in page_products:
+                        products.append(self._product_to_dict(product))
+            except:
+                raise
         
         logger.info(f"Successfully fetched {len(products)} products")
         return products
+    
+    def _product_dict_to_dict(self, product_data: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Convert Shopify product dictionary to standardized format.
+        
+        Args:
+            product_data: Shopify product dictionary from API
+            
+        Returns:
+            Product dictionary
+        """
+        variants = []
+        for variant in product_data.get('variants', []):
+            variants.append({
+                'id': variant.get('id'),
+                'sku': variant.get('sku', ''),
+                'title': variant.get('title', ''),
+                'price': variant.get('price', '0'),
+                'inventory_quantity': variant.get('inventory_quantity', 0),
+                'inventory_item_id': variant.get('inventory_item_id'),
+                'weight': variant.get('weight', 0),
+                'weight_unit': variant.get('weight_unit', 'kg'),
+                'barcode': variant.get('barcode', ''),
+            })
+        
+        images = [img.get('src', '') for img in product_data.get('images', [])]
+        
+        return {
+            'id': product_data.get('id'),
+            'title': product_data.get('title', ''),
+            'description': product_data.get('body_html', '') or product_data.get('description', ''),
+            'handle': product_data.get('handle', ''),
+            'vendor': product_data.get('vendor', ''),
+            'product_type': product_data.get('product_type', ''),
+            'tags': product_data.get('tags', '').split(',') if product_data.get('tags') else [],
+            'images': images,
+            'variants': variants,
+            'status': product_data.get('status', 'active'),
+            'created_at': product_data.get('created_at', ''),
+            'updated_at': product_data.get('updated_at', ''),
+        }
     
     def _product_to_dict(self, product: Product) -> Dict[str, Any]:
         """
