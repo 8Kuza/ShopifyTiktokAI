@@ -54,11 +54,22 @@ class ShopifyHandler:
             requests.exceptions.RequestException: If request fails
             ValueError: If rate limit is exceeded (>90% usage)
         """
-        url = f"https://{Config.SHOPIFY_STORE}/admin/api/{Config.SHOPIFY_API_VERSION}{endpoint}"
+        # Ensure store URL is properly formatted (no protocol, no trailing slash)
+        store = Config.SHOPIFY_STORE.strip().rstrip('/')
+        if store.startswith('http://') or store.startswith('https://'):
+            store = store.split('://', 1)[1]  # Remove protocol if present
+        
+        # Validate store format
+        if not store or '.' not in store:
+            raise ValueError(f"Invalid SHOPIFY_STORE format: '{Config.SHOPIFY_STORE}'. Expected format: 'your-store.myshopify.com'")
+        
+        url = f"https://{store}/admin/api/{Config.SHOPIFY_API_VERSION}{endpoint}"
         headers = {
             'X-Shopify-Access-Token': Config.SHOPIFY_TOKEN,
             'Content-Type': 'application/json'
         }
+        
+        logger.debug(f"Making Shopify API request to: {url}")
         
         try:
             if method.upper() == 'GET':

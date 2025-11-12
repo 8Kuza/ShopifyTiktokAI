@@ -17,7 +17,18 @@ class Config:
     """Configuration class for managing API keys and settings."""
     
     # Shopify Configuration
-    SHOPIFY_STORE = os.getenv('SHOPIFY_STORE')  # e.g., 'your-store.myshopify.com'
+    _shopify_store_raw = os.getenv('SHOPIFY_STORE', '')
+    # Normalize store URL: remove https://, http://, and trailing slashes
+    if _shopify_store_raw:
+        _shopify_store_raw = _shopify_store_raw.strip()
+        # Remove protocol if present
+        if _shopify_store_raw.startswith('https://'):
+            _shopify_store_raw = _shopify_store_raw[8:]
+        elif _shopify_store_raw.startswith('http://'):
+            _shopify_store_raw = _shopify_store_raw[7:]
+        # Remove trailing slash
+        _shopify_store_raw = _shopify_store_raw.rstrip('/')
+    SHOPIFY_STORE = _shopify_store_raw  # e.g., 'your-store.myshopify.com'
     # Accept both SHOPIFY_TOKEN and SHOPIFY_ACCESS_TOKEN for flexibility
     SHOPIFY_TOKEN = os.getenv('SHOPIFY_TOKEN') or os.getenv('SHOPIFY_ACCESS_TOKEN')  # Access token for Shopify API
     SHOPIFY_API_VERSION = os.getenv('SHOPIFY_API_VERSION', '2025-10')
@@ -124,6 +135,15 @@ def init_shopify_client():
     """
     if not Config.SHOPIFY_STORE or not Config.SHOPIFY_TOKEN:
         raise ValueError("Shopify store and token required")
+    
+    # Validate store format
+    store = Config.SHOPIFY_STORE.strip()
+    if not store:
+        raise ValueError("SHOPIFY_STORE cannot be empty")
+    if store.startswith('http://') or store.startswith('https://'):
+        logger.warning(f"SHOPIFY_STORE should not include protocol. Normalized: {store} -> {store.split('://', 1)[1]}")
+    if '.' not in store:
+        raise ValueError(f"Invalid SHOPIFY_STORE format: '{store}'. Expected: 'your-store.myshopify.com'")
     
     logger.info(f"Shopify client configuration validated for {Config.SHOPIFY_STORE}")
     return True
