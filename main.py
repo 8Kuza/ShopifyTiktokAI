@@ -7,17 +7,33 @@ import argparse
 import logging
 import time
 import sys
+import traceback
 from typing import Optional
-from apscheduler.schedulers.background import BackgroundScheduler
-from apscheduler.triggers.interval import IntervalTrigger
-from flask import Flask
 
-from config import Config, setup_logging
-from shopify_handler import ShopifyHandler
-from tiktok_handler import TikTokHandler
-from ai_mapper import AIMapper
-
+# Setup basic logging first before any other imports
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    datefmt='%Y-%m-%d %H:%M:%S'
+)
 logger = logging.getLogger(__name__)
+
+try:
+    from apscheduler.schedulers.background import BackgroundScheduler
+    from apscheduler.triggers.interval import IntervalTrigger
+    from flask import Flask
+    
+    from config import Config, setup_logging
+    from shopify_handler import ShopifyHandler
+    from tiktok_handler import TikTokHandler
+    from ai_mapper import AIMapper
+    
+    # Re-initialize logging with proper setup after config is loaded
+    setup_logging()
+except Exception as e:
+    logger.error(f"Failed to import required modules: {e}")
+    logger.error(traceback.format_exc())
+    sys.exit(1)
 
 # Initialize Flask app for health endpoint (Render deployment)
 app = Flask(__name__)
@@ -316,21 +332,31 @@ def parse_args():
 
 def main():
     """Main entry point."""
-    args = parse_args()
-    
-    # Setup logging
-    log_level = getattr(logging, args.log_level.upper())
-    setup_logging(log_level=log_level)
-    
-    # Validate configuration
     try:
-        Config.validate(strict=True)
-    except ValueError as e:
-        logger.error(f"Configuration error: {e}")
-        logger.error("Please check your .env file and ensure all required variables are set:")
-        logger.error("  - SHOPIFY_STORE (e.g., your-store.myshopify.com)")
-        logger.error("  - SHOPIFY_TOKEN (Shopify Admin API access token)")
-        logger.error("  - OPENAI_API_KEY (OpenAI API key)")
+        args = parse_args()
+        
+        # Setup logging
+        log_level = getattr(logging, args.log_level.upper())
+        setup_logging(log_level=log_level)
+        
+        logger.info("=" * 60)
+        logger.info("Starting Shopify-Only AI Sync Bot")
+        logger.info("=" * 60)
+        
+        # Validate configuration
+        try:
+            Config.validate(strict=True)
+            logger.info("Configuration validated successfully")
+        except ValueError as e:
+            logger.error(f"Configuration error: {e}")
+            logger.error("Please check your .env file and ensure all required variables are set:")
+            logger.error("  - SHOPIFY_STORE (e.g., your-store.myshopify.com)")
+            logger.error("  - SHOPIFY_TOKEN (Shopify Admin API access token)")
+            logger.error("  - OPENAI_API_KEY (OpenAI API key)")
+            sys.exit(1)
+    except Exception as e:
+        logger.error(f"Failed during startup: {e}")
+        logger.error(traceback.format_exc())
         sys.exit(1)
     
     # Initialize bot with error handling
@@ -385,5 +411,13 @@ def main():
 
 
 if __name__ == '__main__':
-    main()
+    try:
+        main()
+    except KeyboardInterrupt:
+        logger.info("Application interrupted by user")
+        sys.exit(0)
+    except Exception as e:
+        logger.error(f"Fatal error in main: {e}")
+        logger.error(traceback.format_exc())
+        sys.exit(1)
 
