@@ -213,45 +213,6 @@ class ShopifyHandler:
             'updated_at': product_data.get('updated_at', ''),
         }
     
-    def _product_to_dict(self, product: Product) -> Dict[str, Any]:
-        """
-        Convert Shopify Product object to dictionary.
-        
-        Args:
-            product: Shopify Product object
-            
-        Returns:
-            Product dictionary
-        """
-        variants = []
-        for variant in product.variants:
-            variants.append({
-                'id': variant.id,
-                'sku': variant.sku,
-                'title': variant.title,
-                'price': variant.price,
-                'inventory_quantity': variant.inventory_quantity,
-                'inventory_item_id': variant.inventory_item_id,
-                'weight': variant.weight,
-                'weight_unit': variant.weight_unit,
-                'barcode': variant.barcode,
-            })
-        
-        return {
-            'id': product.id,
-            'title': product.title,
-            'description': product.body_html or '',
-            'handle': product.handle,
-            'vendor': product.vendor,
-            'product_type': product.product_type,
-            'tags': product.tags.split(',') if product.tags else [],
-            'images': [img.src for img in product.images],
-            'variants': variants,
-            'status': product.status,
-            'created_at': product.created_at,
-            'updated_at': product.updated_at,
-        }
-    
     def get_product_by_id(self, product_id: str) -> Optional[Dict[str, Any]]:
         """
         Fetch a single product by ID using direct HTTP requests.
