@@ -109,6 +109,7 @@ If you don't have a Shopify token yet, follow these steps:
    - Under **Admin API access token**, click **Reveal token once**
    - **Copy the token** (it starts with `shpat_...`)
    - ⚠️ **Important**: Save this token immediately - you can only see it once!
+   - ⚠️ **Note**: Make sure you're copying the **Admin API access token** (starts with `shpat_`), NOT the Session token (starts with `shpss_`) or other tokens
 
 7. **Add to your `.env` file**:
    ```env

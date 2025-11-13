@@ -4,6 +4,7 @@ Handles environment variables, API client initialization, and logging setup.
 """
 
 import os
+import sys
 import logging
 from pathlib import Path
 from dotenv import load_dotenv
