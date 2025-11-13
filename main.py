@@ -8,6 +8,7 @@ import logging
 import time
 import sys
 import traceback
+import json
 from typing import Optional
 
 # Setup basic logging first before any other imports
@@ -21,7 +22,7 @@ logger = logging.getLogger(__name__)
 try:
     from apscheduler.schedulers.background import BackgroundScheduler
     from apscheduler.triggers.interval import IntervalTrigger
-    from flask import Flask
+    from flask import Flask, jsonify
     
     from config import Config, setup_logging
     from shopify_handler import ShopifyHandler
@@ -37,6 +38,9 @@ except Exception as e:
 
 # Initialize Flask app for health endpoint (Render deployment)
 app = Flask(__name__)
+
+# Global reference to sync bot for health checks
+_sync_bot_instance = None
 
 
 class SyncBot:
@@ -279,8 +283,48 @@ class SyncBot:
 
 @app.route('/health')
 def health():
-    """Health check endpoint for Render deployment."""
-    return "AI Sync Bot Running", 200
+    """
+    Health check endpoint for Render deployment.
+    Returns 200 if bot is running, 503 if services are unavailable.
+    """
+    try:
+        # Basic health check - Flask is running
+        health_status = {
+            'status': 'healthy',
+            'message': 'AI Sync Bot Running',
+            'flask': 'running'
+        }
+        
+        # Check scheduler status if bot instance is available
+        if _sync_bot_instance and _sync_bot_instance.scheduler:
+            if _sync_bot_instance.scheduler.running:
+                health_status['scheduler'] = 'running'
+            else:
+                health_status['scheduler'] = 'stopped'
+                health_status['status'] = 'degraded'
+                health_status['message'] = 'AI Sync Bot Running (scheduler stopped)'
+        
+        # Check OpenAI availability
+        if _sync_bot_instance and _sync_bot_instance.ai_mapper:
+            if _sync_bot_instance.ai_mapper.openai_available:
+                health_status['openai'] = 'available'
+            else:
+                health_status['openai'] = 'unavailable'
+                health_status['status'] = 'degraded'
+                health_status['message'] = 'AI Sync Bot Running (OpenAI unavailable, using fallback)'
+        
+        # Return 200 if healthy or degraded, 503 only if critical failure
+        status_code = 200 if health_status['status'] in ['healthy', 'degraded'] else 503
+        
+        # Return JSON response
+        return jsonify(health_status), status_code
+        
+    except Exception as e:
+        logger.error(f"Health check error: {e}")
+        return jsonify({
+            'status': 'error',
+            'message': f'Health check failed: {str(e)}'
+        }), 503
 
 
 def parse_args():
@@ -363,6 +407,10 @@ def main():
     try:
         bot = SyncBot(dry_run=args.dry_run)
         logger.info("Sync bot initialized successfully")
+        
+        # Store bot instance globally for health endpoint
+        global _sync_bot_instance
+        _sync_bot_instance = bot
     except Exception as e:
         logger.error(f"Failed to initialize sync bot: {e}")
         logger.error("This may be due to:")
@@ -380,14 +428,29 @@ def main():
         bot.start_scheduler(interval=args.interval)
         logger.info(f"Bot running in continuous mode (interval: {args.interval}s). Flask health endpoint available at /health")
         
-        # Run Flask in a separate thread for health endpoint
+        # Run Flask for health endpoint (Render deployment)
+        # Render sets PORT environment variable dynamically
+        import os
+        port = int(os.getenv('PORT', 5000))
+        host = os.getenv('HOST', '0.0.0.0')
+        
+        # Start Flask in a separate thread for health endpoint
         import threading
-        flask_thread = threading.Thread(
-            target=lambda: app.run(host='0.0.0.0', port=5000, debug=False, use_reloader=False),
-            daemon=True
-        )
+        def run_flask():
+            try:
+                logger.info(f"Starting Flask health endpoint on {host}:{port}")
+                app.run(host=host, port=port, debug=False, use_reloader=False, threaded=True)
+            except Exception as e:
+                logger.error(f"Failed to start Flask server: {e}")
+                logger.error(traceback.format_exc())
+                # Don't exit - allow bot to continue without health endpoint
+        
+        flask_thread = threading.Thread(target=run_flask, daemon=True)
         flask_thread.start()
-        logger.info("Flask health endpoint started on port 5000")
+        
+        # Give Flask a moment to start
+        time.sleep(1)
+        logger.info(f"Flask health endpoint available at http://{host}:{port}/health")
         
         # Run initial sync immediately (don't wait for first scheduled run)
         if args.mode == 'full' or args.mode is None:

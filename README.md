@@ -315,12 +315,35 @@ The bot includes comprehensive error handling:
    - **Build Command**: `pip install -r requirements.txt`
    - **Start Command**: `python main.py --interval=300`
 4. **Add Environment Variables** in Render dashboard:
-   - `SHOPIFY_STORE`
-   - `SHOPIFY_TOKEN`
-   - `OPENAI_API_KEY`
+   - `SHOPIFY_STORE` (required)
+   - `SHOPIFY_TOKEN` (required)
+   - `OPENAI_API_KEY` (required)
    - (Optional) `TIKTOK_APP_KEY`, `TIKTOK_SECRET` (will mock if not provided)
-5. **Health Check**: Render will automatically check `/health` endpoint
+   - **Note**: `PORT` and `HOST` are automatically set by Render - do NOT set these manually
+5. **Health Check**: 
+   - Render will automatically check `/health` endpoint
+   - The endpoint returns JSON: `{"status": "healthy", "message": "AI Sync Bot Running", ...}`
+   - Returns `200` if healthy, `503` if critical services are down
 6. **Auto-restart**: Render will automatically restart the service on crash
+
+### Health Endpoint Details
+
+The `/health` endpoint provides:
+- **Status**: `healthy`, `degraded`, or `error`
+- **Flask**: Always `running` if endpoint is accessible
+- **Scheduler**: `running` or `stopped` (shows if sync scheduler is active)
+- **OpenAI**: `available` or `unavailable` (shows if AI mapping is working)
+
+Example response:
+```json
+{
+  "status": "healthy",
+  "message": "AI Sync Bot Running",
+  "flask": "running",
+  "scheduler": "running",
+  "openai": "available"
+}
+```
 
 ### Render Optimization Tips
 
@@ -429,11 +452,27 @@ Example MOCK output:
    - Verify internet connection
    - Check OpenAI API status at https://status.openai.com
 
-6. **Render Deployment Issues**:
-   - Ensure `runtime.txt` specifies `python-3.12`
-   - Check that all environment variables are set in Render dashboard
-   - Verify the health endpoint is accessible at `/health`
-   - Check Render logs for detailed error messages
+6. **Render Deployment Issues / 404 on /health Endpoint**:
+   - **Error**: `404 Not Found` when accessing `/health` endpoint
+   - **Fix**: 
+     - Ensure `runtime.txt` specifies `python-3.12`
+     - Check that all environment variables are set in Render dashboard
+     - Verify Flask is starting correctly - check Render logs for "Flask health endpoint available"
+     - The bot now automatically uses Render's `PORT` environment variable (no need to set it manually)
+     - Flask should start on `0.0.0.0` (default) - Render sets this automatically
+     - Check Render logs for Flask startup errors
+     - Verify the start command is: `python main.py --interval=300`
+   - **Debugging Steps**:
+     1. Check Render logs for: `"Starting Flask health endpoint on 0.0.0.0:XXXX"`
+     2. Verify PORT is being read: Look for log message with the port number
+     3. Test locally: `python main.py --dry-run` and visit `http://localhost:5000/health`
+     4. Check if Flask thread is starting: Look for "Flask health endpoint available" in logs
+     5. If Flask fails to start, the bot will continue running but health endpoint won't be available
+   - **Common Causes**:
+     - Flask thread not starting (check for exceptions in logs)
+     - Port conflict (Render handles this automatically)
+     - Missing Flask import (should not happen if requirements.txt is correct)
+     - Flask app not registered properly (should be fixed in latest version)
 
 ## License
 

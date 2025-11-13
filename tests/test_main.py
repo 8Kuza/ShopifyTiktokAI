@@ -4,7 +4,7 @@ Unit tests for main sync bot module.
 
 import pytest
 from unittest.mock import Mock, patch, MagicMock
-from main import SyncBot
+from main import SyncBot, app, _sync_bot_instance
 
 
 @pytest.fixture
@@ -71,4 +71,57 @@ def test_sync_bot_stop_scheduler(sync_bot_dry_run):
     sync_bot_dry_run.stop_scheduler()
     # Scheduler should be stopped (shutdown)
     assert sync_bot_dry_run.scheduler is not None
+
+
+def test_health_endpoint_basic():
+    """Test health endpoint returns 200 and proper JSON."""
+    with app.test_client() as client:
+        response = client.get('/health')
+        assert response.status_code == 200
+        data = response.get_json()
+        assert data is not None
+        assert 'status' in data
+        assert 'message' in data
+        assert 'flask' in data
+        assert data['flask'] == 'running'
+
+
+def test_health_endpoint_with_bot(sync_bot_dry_run):
+    """Test health endpoint with bot instance."""
+    # Set global bot instance
+    import main
+    main._sync_bot_instance = sync_bot_dry_run
+    
+    # Start scheduler
+    sync_bot_dry_run.start_scheduler(interval=60)
+    
+    with app.test_client() as client:
+        response = client.get('/health')
+        assert response.status_code == 200
+        data = response.get_json()
+        assert data is not None
+        assert 'status' in data
+        assert 'scheduler' in data
+        assert data['scheduler'] == 'running'
+    
+    # Cleanup
+    sync_bot_dry_run.stop_scheduler()
+    main._sync_bot_instance = None
+
+
+def test_health_endpoint_openai_status(sync_bot_dry_run):
+    """Test health endpoint checks OpenAI availability."""
+    import main
+    main._sync_bot_instance = sync_bot_dry_run
+    
+    with app.test_client() as client:
+        response = client.get('/health')
+        assert response.status_code == 200
+        data = response.get_json()
+        assert data is not None
+        # OpenAI status should be present if bot instance exists
+        if sync_bot_dry_run.ai_mapper:
+            assert 'openai' in data
+    
+    main._sync_bot_instance = None
 

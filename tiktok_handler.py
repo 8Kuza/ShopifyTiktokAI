@@ -31,6 +31,7 @@ class TikTokHandler:
         self.app_secret = Config.TIKTOK_SECRET
         self.base_url = Config.TIKTOK_API_BASE
         self.mock_mode = Config.MOCK_MODE or not self.app_key or not self.app_key.startswith('app_')
+        self.access_token = None  # Will be set when authenticating with TikTok API
         
         if self.mock_mode:
             logger.info("TikTok handler initialized in MOCK MODE - API calls will be logged only")
