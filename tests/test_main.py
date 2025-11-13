@@ -73,6 +73,19 @@ def test_sync_bot_stop_scheduler(sync_bot_dry_run):
     assert sync_bot_dry_run.scheduler is not None
 
 
+def test_root_endpoint():
+    """Test root endpoint returns 200 and proper JSON."""
+    with app.test_client() as client:
+        response = client.get('/')
+        assert response.status_code == 200
+        data = response.get_json()
+        assert data is not None
+        assert 'service' in data
+        assert 'status' in data
+        assert 'endpoints' in data
+        assert data['service'] == 'Shopify TikTok AI Sync Bot'
+
+
 def test_health_endpoint_basic():
     """Test health endpoint returns 200 and proper JSON."""
     with app.test_client() as client:

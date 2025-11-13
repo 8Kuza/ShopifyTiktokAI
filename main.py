@@ -281,6 +281,20 @@ class SyncBot:
             logger.info("Scheduler stopped")
 
 
+@app.route('/')
+def root():
+    """Root endpoint - provides basic info and links to health endpoint."""
+    return jsonify({
+        'service': 'Shopify TikTok AI Sync Bot',
+        'status': 'running',
+        'endpoints': {
+            'health': '/health',
+            'root': '/'
+        },
+        'message': 'Visit /health for detailed health status'
+    }), 200
+
+
 @app.route('/health')
 def health():
     """
