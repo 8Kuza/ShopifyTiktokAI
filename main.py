@@ -39,7 +39,7 @@ except Exception as e:
 # Initialize Flask app for health endpoint (Render deployment)
 app = Flask(__name__)
 
-# Global reference to sync bot for health checks
+# Global reference to sync bot for health checks and manual triggers
 _sync_bot_instance = None
 
 
@@ -237,21 +237,27 @@ class SyncBot:
     
     def run_full_sync(self):
         """Run full sync (inventory + products)."""
-        logger.info("=" * 60)
-        logger.info("Starting FULL SYNC (Shopify → AI Optimization → Mock TikTok)")
-        logger.info("=" * 60)
-        
-        # Sync inventory
-        inv_results = self.sync_inventory()
-        logger.info(f"Inventory sync: {inv_results}")
-        
-        # Sync products with AI optimization
-        prod_results = self.sync_products()
-        logger.info(f"Product sync: {prod_results}")
-        
-        logger.info("=" * 60)
-        logger.info("FULL SYNC COMPLETED")
-        logger.info("=" * 60)
+        try:
+            logger.info("=" * 60)
+            logger.info("Starting FULL SYNC (Shopify → AI Optimization → Mock TikTok)")
+            logger.info(f"Sync triggered at {time.strftime('%Y-%m-%d %H:%M:%S')}")
+            logger.info("=" * 60)
+            
+            # Sync inventory
+            inv_results = self.sync_inventory()
+            logger.info(f"Inventory sync: {inv_results}")
+            
+            # Sync products with AI optimization
+            prod_results = self.sync_products()
+            logger.info(f"Product sync: {prod_results}")
+            
+            logger.info("=" * 60)
+            logger.info("FULL SYNC COMPLETED")
+            logger.info("=" * 60)
+        except Exception as e:
+            logger.error(f"CRITICAL: Error in scheduled full sync: {e}")
+            logger.error(traceback.format_exc())
+            # Don't re-raise - allow scheduler to continue
     
     def start_scheduler(self, interval: int = 300):
         """
@@ -260,19 +266,38 @@ class SyncBot:
         Args:
             interval: Sync interval in seconds (default: 300 = 5 minutes)
         """
-        logger.info(f"Starting scheduler with {interval}s interval")
+        logger.info(f"Starting scheduler with {interval}s interval ({interval/60:.1f} minutes)")
         
         self.scheduler = BackgroundScheduler()
+        
+        # Wrap the job function to add better error handling
+        def scheduled_sync_job():
+            try:
+                logger.info(f"[SCHEDULER] Scheduled sync job triggered at {time.strftime('%Y-%m-%d %H:%M:%S')}")
+                self.run_full_sync()
+                logger.info(f"[SCHEDULER] Scheduled sync job completed successfully")
+            except Exception as e:
+                logger.error(f"[SCHEDULER] CRITICAL ERROR in scheduled job: {e}")
+                logger.error(traceback.format_exc())
+        
         self.scheduler.add_job(
-            self.run_full_sync,
+            scheduled_sync_job,
             trigger=IntervalTrigger(seconds=interval),
             id='full_sync',
             name='Full Sync Job',
-            replace_existing=True
+            replace_existing=True,
+            max_instances=1  # Prevent overlapping runs
         )
         
         self.scheduler.start()
-        logger.info("Scheduler started")
+        logger.info("Scheduler started successfully")
+        logger.info(f"Next sync will run in {interval} seconds ({interval/60:.1f} minutes)")
+        
+        # Log scheduler status
+        if self.scheduler.running:
+            logger.info("Scheduler is RUNNING and will trigger syncs automatically")
+        else:
+            logger.error("WARNING: Scheduler started but is not running!")
     
     def stop_scheduler(self):
         """Stop the scheduler."""
@@ -293,6 +318,59 @@ def root():
         },
         'message': 'Visit /health for detailed health status'
     }), 200
+
+
+@app.route('/trigger-sync', methods=['POST', 'GET'])
+def trigger_sync():
+    """Manually trigger a sync (for debugging)."""
+    try:
+        if _sync_bot_instance:
+            logger.info("[MANUAL TRIGGER] Sync triggered via /trigger-sync endpoint")
+            _sync_bot_instance.run_full_sync()
+            return jsonify({
+                'status': 'success',
+                'message': 'Sync triggered successfully',
+                'timestamp': time.strftime('%Y-%m-%d %H:%M:%S')
+            }), 200
+        else:
+            return jsonify({
+                'status': 'error',
+                'message': 'Bot instance not available'
+            }), 503
+    except Exception as e:
+        logger.error(f"Error triggering manual sync: {e}")
+        return jsonify({
+            'status': 'error',
+            'message': f'Error: {str(e)}'
+        }), 500
+
+
+@app.route('/scheduler-status')
+def scheduler_status():
+    """Check scheduler status (for debugging)."""
+    try:
+        status = {
+            'scheduler_exists': _sync_bot_instance is not None and _sync_bot_instance.scheduler is not None,
+            'scheduler_running': False,
+            'jobs': []
+        }
+        
+        if _sync_bot_instance and _sync_bot_instance.scheduler:
+            status['scheduler_running'] = _sync_bot_instance.scheduler.running
+            jobs = _sync_bot_instance.scheduler.get_jobs()
+            status['jobs'] = [{
+                'id': job.id,
+                'name': job.name,
+                'next_run_time': str(job.next_run_time) if job.next_run_time else None
+            } for job in jobs]
+        
+        return jsonify(status), 200
+    except Exception as e:
+        logger.error(f"Error checking scheduler status: {e}")
+        return jsonify({
+            'status': 'error',
+            'message': f'Error: {str(e)}'
+        }), 500
 
 
 @app.route('/health')
