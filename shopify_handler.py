@@ -363,15 +363,36 @@ class ShopifyHandler:
             else:
                 # Fetch all products and extract inventory from variants
                 products = self.get_all_products()
+                logger.info(f"Processing {len(products)} products for inventory sync")
+                
+                skipped_no_sku = 0
+                skipped_no_tracking = 0
+                
                 for product in products:
                     for variant in product.get('variants', []):
-                        if variant.get('inventory_item_id') and variant.get('sku'):
-                            inventory_levels.append({
-                                'inventory_item_id': variant['inventory_item_id'],
-                                'sku': variant['sku'],
-                                'available': variant.get('inventory_quantity', 0),
-                                'updated_at': product.get('updated_at'),
-                            })
+                        # Check if inventory tracking is enabled
+                        if not variant.get('inventory_item_id'):
+                            skipped_no_tracking += 1
+                            continue
+                        
+                        # Check if SKU exists (required for TikTok)
+                        if not variant.get('sku'):
+                            skipped_no_sku += 1
+                            logger.debug(f"Product {product.get('title')} variant {variant.get('title')} skipped - no SKU")
+                            continue
+                        
+                        inventory_levels.append({
+                            'inventory_item_id': variant['inventory_item_id'],
+                            'sku': variant['sku'],
+                            'available': variant.get('inventory_quantity', 0),
+                            'updated_at': product.get('updated_at'),
+                        })
+                
+                logger.info(f"Inventory extraction: {len(inventory_levels)} items with SKUs and tracking")
+                if skipped_no_sku > 0:
+                    logger.warning(f"  - {skipped_no_sku} variants skipped (no SKU) - add SKUs in Shopify to sync them")
+                if skipped_no_tracking > 0:
+                    logger.info(f"  - {skipped_no_tracking} variants skipped (inventory tracking disabled)")
             
             return inventory_levels
             

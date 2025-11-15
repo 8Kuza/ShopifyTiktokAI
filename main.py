@@ -86,9 +86,11 @@ class SyncBot:
             
             # Prepare inventory updates for TikTok
             inventory_updates = []
+            skipped_no_sku = 0
             for level in inventory_levels:
                 sku = level.get('sku')
                 if not sku:
+                    skipped_no_sku += 1
                     continue
                 
                 inventory_updates.append({
@@ -96,8 +98,14 @@ class SyncBot:
                     'quantity': level.get('available', 0),
                 })
             
+            # Log summary
+            logger.info(f"Found {len(inventory_levels)} inventory items total")
+            logger.info(f"  - {len(inventory_updates)} items with SKUs (will be synced)")
+            if skipped_no_sku > 0:
+                logger.warning(f"  - {skipped_no_sku} items skipped (no SKU) - TikTok requires SKUs for inventory sync")
+            
             if not inventory_updates:
-                logger.warning("No valid inventory updates to sync")
+                logger.warning("No valid inventory updates to sync (all items missing SKUs)")
                 return results
             
             # Bulk update TikTok inventory
@@ -545,20 +553,32 @@ def main():
         logger.info(f"Flask health endpoint available at http://{host}:{port}/health")
         
         # Run initial sync immediately (don't wait for first scheduled run)
-        if args.mode == 'full' or args.mode is None:
-            logger.info("Running initial full sync...")
-            bot.run_full_sync()
-        elif args.mode == 'inventory':
-            logger.info("Running initial inventory sync...")
-            results = bot.sync_inventory()
-            logger.info(f"Inventory sync results: {results}")
-        elif args.mode == 'products':
-            logger.info("Running initial product sync...")
-            results = bot.sync_products(limit=args.limit)
-            logger.info(f"Product sync results: {results}")
+        # Wrap in try/except to prevent crashes from stopping the app
+        try:
+            if args.mode == 'full' or args.mode is None:
+                logger.info("Running initial full sync...")
+                bot.run_full_sync()
+            elif args.mode == 'inventory':
+                logger.info("Running initial inventory sync...")
+                results = bot.sync_inventory()
+                logger.info(f"Inventory sync results: {results}")
+            elif args.mode == 'products':
+                logger.info("Running initial product sync...")
+                results = bot.sync_products(limit=args.limit)
+                logger.info(f"Product sync results: {results}")
+        except Exception as e:
+            logger.error(f"Error during initial sync (app will continue): {e}")
+            logger.error(traceback.format_exc())
+            # Don't exit - allow app to continue running
         
         # Keep the main thread alive - CRITICAL for Render deployment
         logger.info("Application is running. Waiting for scheduled syncs...")
+        logger.info("Flask endpoints available:")
+        logger.info("  - GET / - Root endpoint")
+        logger.info("  - GET /health - Health check")
+        logger.info("  - GET /scheduler-status - Scheduler status")
+        logger.info("  - GET /trigger-sync - Manually trigger sync")
+        
         try:
             while True:
                 time.sleep(1)
@@ -566,6 +586,11 @@ def main():
             logger.info("Stopping bot...")
             bot.stop_scheduler()
             sys.exit(0)
+        except Exception as e:
+            logger.error(f"Unexpected error in main loop: {e}")
+            logger.error(traceback.format_exc())
+            # Try to keep running
+            time.sleep(5)
         
         # This code should never be reached, but kept for backwards compatibility
         if False:  # Disabled - always use continuous mode
