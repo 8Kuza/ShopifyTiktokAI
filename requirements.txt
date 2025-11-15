@@ -4,7 +4,7 @@
 python-dotenv==1.0.1
 requests==2.32.3
 openai==1.51.0
-httpx>=0.24.1  # Required by OpenAI 1.51.0, explicitly specify to avoid proxy issues
+httpx==0.27.2  # Compatible version that works with OpenAI 1.51.0 without proxy issues
 
 # Shopify API (using direct HTTP requests via requests library)
 # No additional Shopify library needed - using requests for reliability

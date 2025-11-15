@@ -171,18 +171,25 @@ def init_openai_client(max_retries: int = 3):
     
     import os
     
-    # Save and temporarily remove proxy environment variables
+    # Save and temporarily remove ALL proxy-related environment variables
     # OpenAI v1.x may auto-detect proxies from env vars, causing issues
-    # Set them to empty string instead of deleting to prevent auto-detection
+    # We need to be very aggressive about this
     proxy_vars = ['HTTP_PROXY', 'HTTPS_PROXY', 'http_proxy', 'https_proxy', 
                  'ALL_PROXY', 'all_proxy', 'NO_PROXY', 'no_proxy',
-                 'REQUESTS_CA_BUNDLE', 'CURL_CA_BUNDLE']  # Also disable cert bundle vars
+                 'REQUESTS_CA_BUNDLE', 'CURL_CA_BUNDLE',
+                 'HTTP_PROXY_REQUESTS', 'HTTPS_PROXY_REQUESTS']  # Also disable cert bundle vars
     saved_env = {}
+    
+    # Log what proxy vars exist before clearing
+    existing_proxies = {var: os.environ.get(var) for var in proxy_vars if var in os.environ}
+    if existing_proxies:
+        logger.info(f"Found proxy environment variables, clearing them: {list(existing_proxies.keys())}")
+    
     for var in proxy_vars:
         if var in os.environ:
             saved_env[var] = os.environ[var]
-            # Set to empty string instead of deleting to prevent auto-detection
-            os.environ[var] = ''
+        # Delete the variable completely (not just set to empty)
+        os.environ.pop(var, None)
     
     try:
         # Clear any cached OpenAI imports to ensure clean initialization
@@ -199,22 +206,21 @@ def init_openai_client(max_retries: int = 3):
                 # OpenAI v1.x initialization - NO proxies parameter
                 # Use only api_key parameter, which is the correct syntax
                 # Explicitly do NOT pass proxies - OpenAI v1.x doesn't support it
-                # Double-check proxy vars are set to empty before initialization
-                # Setting to empty string prevents OpenAI from auto-detecting proxies
+                # Double-check ALL proxy vars are completely removed before initialization
                 for var in proxy_vars:
-                    os.environ[var] = ''
+                    os.environ.pop(var, None)
                 
-                # Initialize OpenAI client with explicit http_client to bypass proxy detection
-                import httpx
-                http_client = httpx.Client(
-                    proxies=None,  # Explicitly disable proxies
-                    timeout=30.0
-                )
+                # Also check for any other proxy-related vars that might exist
+                all_env_vars = list(os.environ.keys())
+                for var in all_env_vars:
+                    if 'PROXY' in var.upper() or 'proxy' in var.lower():
+                        if var not in saved_env:  # Don't delete ones we're tracking
+                            logger.debug(f"Found additional proxy var: {var}, removing it")
+                            os.environ.pop(var, None)
                 
-                client = OpenAI(
-                    api_key=Config.OPENAI_API_KEY,
-                    http_client=http_client
-                )
+                # Initialize OpenAI client with minimal configuration
+                # Don't pass any optional parameters that might trigger proxy detection
+                client = OpenAI(api_key=Config.OPENAI_API_KEY)
                 
                 # Verify client is working by making a simple test call
                 # This confirms the API key is valid and client is functional
