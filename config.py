@@ -173,13 +173,16 @@ def init_openai_client(max_retries: int = 3):
     
     # Save and temporarily remove proxy environment variables
     # OpenAI v1.x may auto-detect proxies from env vars, causing issues
+    # Set them to empty string instead of deleting to prevent auto-detection
     proxy_vars = ['HTTP_PROXY', 'HTTPS_PROXY', 'http_proxy', 'https_proxy', 
-                 'ALL_PROXY', 'all_proxy', 'NO_PROXY', 'no_proxy']
+                 'ALL_PROXY', 'all_proxy', 'NO_PROXY', 'no_proxy',
+                 'REQUESTS_CA_BUNDLE', 'CURL_CA_BUNDLE']  # Also disable cert bundle vars
     saved_env = {}
     for var in proxy_vars:
         if var in os.environ:
             saved_env[var] = os.environ[var]
-            del os.environ[var]
+            # Set to empty string instead of deleting to prevent auto-detection
+            os.environ[var] = ''
     
     try:
         # Clear any cached OpenAI imports to ensure clean initialization
@@ -196,12 +199,22 @@ def init_openai_client(max_retries: int = 3):
                 # OpenAI v1.x initialization - NO proxies parameter
                 # Use only api_key parameter, which is the correct syntax
                 # Explicitly do NOT pass proxies - OpenAI v1.x doesn't support it
-                # Double-check proxy vars are removed before initialization
+                # Double-check proxy vars are set to empty before initialization
+                # Setting to empty string prevents OpenAI from auto-detecting proxies
                 for var in proxy_vars:
-                    if var in os.environ:
-                        del os.environ[var]
+                    os.environ[var] = ''
                 
-                client = OpenAI(api_key=Config.OPENAI_API_KEY)
+                # Initialize OpenAI client with explicit http_client to bypass proxy detection
+                import httpx
+                http_client = httpx.Client(
+                    proxies=None,  # Explicitly disable proxies
+                    timeout=30.0
+                )
+                
+                client = OpenAI(
+                    api_key=Config.OPENAI_API_KEY,
+                    http_client=http_client
+                )
                 
                 # Verify client is working by making a simple test call
                 # This confirms the API key is valid and client is functional
@@ -236,13 +249,13 @@ def init_openai_client(max_retries: int = 3):
                         for module_name in modules_to_clear:
                             del sys.modules[module_name]
                         
-                        # Ensure proxy env vars are still removed
+                        # Ensure proxy env vars are set to empty
                         for var in proxy_vars:
-                            if var in os.environ:
-                                del os.environ[var]
+                            os.environ[var] = ''
                         
                         # Re-import after clearing
                         from openai import OpenAI
+                        import httpx
                         continue
                     else:
                         logger.error("OpenAI client initialization failed after all retries")
