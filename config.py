@@ -248,20 +248,34 @@ def init_openai_client(max_retries: int = 3):
             except TypeError as e:
                 error_msg = str(e).lower()
                 if 'proxies' in error_msg or 'unexpected keyword' in error_msg:
+                    # Log detailed error information for debugging
+                    logger.warning(f"OpenAI init attempt {attempt + 1}/{max_retries} failed: {e}")
+                    logger.warning(f"Full error: {type(e).__name__}: {e}")
+                    import traceback
+                    logger.debug(f"Traceback: {traceback.format_exc()}")
+                    
+                    # Check what proxy vars still exist
+                    remaining_proxies = {var: os.environ.get(var) for var in proxy_vars if var in os.environ}
+                    if remaining_proxies:
+                        logger.warning(f"WARNING: Proxy vars still exist after clearing: {remaining_proxies}")
+                    
                     if attempt < max_retries - 1:
-                        logger.warning(f"OpenAI init attempt {attempt + 1}/{max_retries} failed: {e}")
                         # Clear ALL OpenAI-related modules from cache
                         modules_to_clear = [k for k in list(sys.modules.keys()) if k.startswith('openai')]
                         for module_name in modules_to_clear:
                             del sys.modules[module_name]
                         
-                        # Ensure proxy env vars are set to empty
+                        # Also clear httpx modules
+                        httpx_modules = [k for k in list(sys.modules.keys()) if k.startswith('httpx')]
+                        for module_name in httpx_modules:
+                            del sys.modules[module_name]
+                        
+                        # Ensure ALL proxy env vars are completely removed
                         for var in proxy_vars:
-                            os.environ[var] = ''
+                            os.environ.pop(var, None)
                         
                         # Re-import after clearing
                         from openai import OpenAI
-                        import httpx
                         continue
                     else:
                         logger.error("OpenAI client initialization failed after all retries")
