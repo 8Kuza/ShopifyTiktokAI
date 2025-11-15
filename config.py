@@ -182,12 +182,25 @@ def init_openai_client(max_retries: int = 3):
             del os.environ[var]
     
     try:
+        # Clear any cached OpenAI imports to ensure clean initialization
+        import sys
+        modules_to_clear = [k for k in sys.modules.keys() if k.startswith('openai')]
+        for module_name in modules_to_clear:
+            del sys.modules[module_name]
+        
+        # Import OpenAI fresh after clearing cache
         from openai import OpenAI
         
         for attempt in range(max_retries):
             try:
                 # OpenAI v1.x initialization - NO proxies parameter
                 # Use only api_key parameter, which is the correct syntax
+                # Explicitly do NOT pass proxies - OpenAI v1.x doesn't support it
+                # Double-check proxy vars are removed before initialization
+                for var in proxy_vars:
+                    if var in os.environ:
+                        del os.environ[var]
+                
                 client = OpenAI(api_key=Config.OPENAI_API_KEY)
                 
                 # Verify client is working by making a simple test call
@@ -218,11 +231,16 @@ def init_openai_client(max_retries: int = 3):
                 if 'proxies' in error_msg or 'unexpected keyword' in error_msg:
                     if attempt < max_retries - 1:
                         logger.warning(f"OpenAI init attempt {attempt + 1}/{max_retries} failed: {e}")
-                        # Clear OpenAI module from cache and re-import
-                        if 'openai' in sys.modules:
-                            del sys.modules['openai']
-                        if 'openai._client' in sys.modules:
-                            del sys.modules['openai._client']
+                        # Clear ALL OpenAI-related modules from cache
+                        modules_to_clear = [k for k in list(sys.modules.keys()) if k.startswith('openai')]
+                        for module_name in modules_to_clear:
+                            del sys.modules[module_name]
+                        
+                        # Ensure proxy env vars are still removed
+                        for var in proxy_vars:
+                            if var in os.environ:
+                                del os.environ[var]
+                        
                         # Re-import after clearing
                         from openai import OpenAI
                         continue
