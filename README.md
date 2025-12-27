@@ -1,6 +1,6 @@
 # Shopify-Only AI Sync Bot with Mock TikTok
 
-A production-ready Python automation tool for syncing inventory and products from Shopify with AI optimization. Designed as an MVP for a 17-year-old's ($497 beta) agency service. Runs on Render, syncs Shopify inventory/products with AI optimization, and mocks TikTok API calls until approval (3-5 days). Built for DTC brand agencies requiring low-latency, error-handling, and scalable operations.
+A production-ready Python automation tool for syncing inventory and products from Shopify with AI optimization. Designed as an MVP for a ($497 beta) agency service. Runs on Render, syncs Shopify inventory/products with AI optimization, and mocks TikTok API calls until approval (3-5 days). Built for DTC brand agencies requiring low-latency, error-handling, and scalable operations.
 
 ## Features
 
